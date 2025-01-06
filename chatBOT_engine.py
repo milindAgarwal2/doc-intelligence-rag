@@ -12,14 +12,8 @@ from attr import validators
 from dotenv import load_dotenv
 from transformers import pipeline
 
-from htmlTemplates import css, bot_template, user_template, eli_bot_template
+from htmlTemplates import css, bot_template, user_template
 from langchain.embeddings.sentence_transformer import SentenceTransformerEmbeddings
-
-# Use the API Key as is (Reminder - do not hard-code in public notebooks/code)
-ELI_API_KEY = "REDACTED_API_KEY"
-
-# Set ELI Gateway URL for the EWS instance
-ELI_API_URL = "https://gateway.eli.gaia.gic.ericsson.se"
 
 imageAgree = False
 showTable = False
@@ -82,13 +76,6 @@ def get_text_chunks(text):
     return chunks
 
 
-def checkindex(response, checkres):
-    index = response.find(checkres)
-    if index != -1:
-        st.write(
-            bot_template.replace("{{MSG}}", "Do you want to connect to Ericsson AI for more information ? (Yes / No) "),
-            unsafe_allow_html=True)
-
 def getdirname(filepath):
     imageDir = filepath.replace("pdf\\", "")
     imageDir = imageDir.replace(".pdf", "")
@@ -144,7 +131,7 @@ def appendTable(responsetoquestion,newfilename,newpageNumber):
 
 def handle_userinput_getdocuments(user_question):
     embedding_function = SentenceTransformerEmbeddings(model_name="all-mpnet-base-v2")
-    vectorstore = Chroma("Project_MCPTT", persist_directory="./chroma_mcptt",
+    vectorstore = Chroma("Project_NAME", persist_directory="./chroma_Name",
                          embedding_function=embedding_function, collection_metadata={"hnsw:space": "cosine"})
     summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
@@ -192,37 +179,6 @@ def handle_userinput_getdocuments(user_question):
     st.session_state.chat_history[user_question] = responsetoquestion
     displaychathistory()
 
-
-def askeli(user_question):
-    print("Button pressed")
-    print("clicked state", st.session_state.clicked)
-
-    # reversechat = list(st.session_state.chat_history.items())
-    # k,v = reversechat[-1]
-    # print("Question :", k)
-    # print("Answer :", v)
-
-    system_prompt = (
-        "You are an assistant for question-answering tasks. "
-        "Use the following pieces of retrieved context to answer "
-        "the question. If you don't know the answer, say that you "
-        "don't know. Use three sentences maximum and keep the "
-        "answer concise."
-        "\n"
-    )
-
-    result = eli_chat_stream(
-        model="mistral",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_question},
-        ],
-        temperature=0.3,
-        max_new_tokens=512,
-    )
-
-    st.session_state.chat_history[user_question + "_ELI"] = result
-
 def text_input_handler():
     st.session_state['text_input'] = st.session_state['text_input_widget']
 
@@ -252,10 +208,6 @@ def main():
 
     user_question = st.text_input("Ask a question about your project solution:",key='text_input_widget', on_change=text_input_handler)
 
-    st.button("To ask ELI click here", on_click=click_button)
-    st.checkbox("Include Image",key="include_image",on_change=click_image)
-    st.checkbox("Include Tables", key="include_table", on_change=click_table)
-
     if st.session_state.clicked:
        # The message and nested widget will remain on the page
        st.session_state.clicked = False
@@ -267,68 +219,13 @@ def main():
         st.session_state.chat_history = {}
 
     if user_question:
-        if user_question.lower() == "yes":
-            displaychathistory()
-            askeli(user_question)
-        else:
-            #handle_userinput(user_question)
-            handle_userinput_getdocuments(user_question)
+        handle_userinput_getdocuments(user_question)
 
     st.write(user_template.replace(
         "{{MSG}}", "hello bot"), unsafe_allow_html=True)
 
     st.write(bot_template.replace(
         "{{MSG}}", "hello human"), unsafe_allow_html=True)
-
-
-def eli_chat_stream(
-        messages=None,
-        model: str = "mistral",
-        max_new_tokens=128,
-        temperature=0.3
-):
-    """
-    Make API call to ELI LLM Chat endpoint
-
-    The input messages field follows the format:
-        [
-            {"role": "system", "content" : "<message>"},
-            {"role": "user", "content" : "<message>"}
-            {"role": "assistant", "content" : "<message>"},
-        ]
-    """
-
-    if messages is None:
-        messages = []
-    try:
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_new_tokens": max_new_tokens,
-            "stream": True,  # Set to false if you do not want streamed response
-        }
-        headers = {
-            "Authorization": f"Bearer {ELI_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        response = requests.post(
-            f"{ELI_API_URL}/api/v1/llm/chat_stream",
-            json=payload,
-            headers=headers,
-            timeout=(300, 300),
-            verify=False,
-        )
-        output = []
-        print("Prepare to print response")
-        for part in response.iter_content():
-            part = part.decode("utf8")
-            output.append(part)
-            print(part, end="", flush=True)  # <- print stream content to console
-        print()
-        return "".join(output)
-    except Exception as ex:
-        return f"An error occurred: {ex}"
 
 
 if __name__ == '__main__':

@@ -58,7 +58,7 @@ def main():
     # create the open-source embedding function
     embedding_function = SentenceTransformerEmbeddings(model_name="all-mpnet-base-v2")
 
-    vectorstore = Chroma("Project_MCPTT", embedding_function, "./chroma_mcptt",collection_metadata={"hnsw:space": "cosine"})
+    vectorstore = Chroma("Project_NAME", embedding_function, "./chroma_Name",collection_metadata={"hnsw:space": "cosine"})
     vectorstore.reset_collection()
     image_count = 0
 
