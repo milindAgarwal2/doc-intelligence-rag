@@ -1,5 +1,6 @@
 import gc
 import glob
+import os
 
 from dotenv import load_dotenv
 
@@ -23,7 +24,7 @@ def get_pdf_text(pdf_docs):
     return text
 
 def getdirname(filepath):
-    imageDir = filepath.replace("pdf\\", "")
+    imageDir = os.path.basename(filepath)
     imageDir = imageDir.replace(".pdf", "")
     imageDir = imageDir.replace(" ", "")
     return imageDir
@@ -62,12 +63,11 @@ def main():
     vectorstore.reset_collection()
     image_count = 0
 
-    pdf_names = list(glob.glob("pdf\\*.pdf"))
+    pdf_names = list(glob.glob(os.path.join("pdf", "*.pdf")))
 
     for filepath in pdf_names:
         print(filepath)
         gc.collect()
-        #file_name = 'pdf\\' + f
 
         # Create a PdfDocument object
         doc = PdfDocument()
@@ -86,14 +86,14 @@ def main():
             hasTable = 0
             tablePage = tableDoc[i]
             tables = tablePage.find_tables()
-            pathToStoreTable = f"table\\" + imageDir + "\\" + str(i)
+            pathToStoreTable = os.path.join("table", imageDir, str(i))
             j = 1
             for table in tables:
                 # Process each table here
                 hasTable = 1
                 if not os.path.exists(pathToStoreTable):
                     os.makedirs(pathToStoreTable)
-                pickleTableName = pathToStoreTable+"\\table"+str(j)+".pkl"
+                pickleTableName = os.path.join(pathToStoreTable, "table" + str(j) + ".pkl")
                 df = pd.DataFrame(table.extract())
                 df.to_pickle(pickleTableName)
                 print(table.extract())
@@ -107,11 +107,11 @@ def main():
 
             for j in range(len(images_info)):
                 hasImage = 1
-                pathToStoreImage = f"pdf\\" + imageDir+"\\"+str(i)
+                pathToStoreImage = os.path.join("pdf", imageDir, str(i))
                 if not os.path.exists(pathToStoreImage):
-                    os.makedirs(f"pdf\\" + imageDir+"\\"+str(i))
+                    os.makedirs(pathToStoreImage)
                 image_info = images_info[j]
-                output_file = pathToStoreImage+"\\image"+str(j)+".png"
+                output_file = os.path.join(pathToStoreImage, "image" + str(j) + ".png")
                 image_info.Image.Save(output_file)
                 image_count += 1
 

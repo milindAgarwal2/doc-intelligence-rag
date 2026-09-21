@@ -85,7 +85,7 @@ def get_text_chunks(text):
 
 
 def getdirname(filepath):
-    imageDir = filepath.replace("pdf\\", "")
+    imageDir = os.path.basename(filepath)
     imageDir = imageDir.replace(".pdf", "")
     imageDir = imageDir.replace(" ", "")
     return imageDir
@@ -104,9 +104,9 @@ def displaychathistory():
 def appendImage(responsetoquestion,newfilename,newpageNumber):
 
     imageDir = getdirname(newfilename)
-    pathToStoreImage = f"pdf\\" + imageDir + "\\" + str(newpageNumber)
+    pathToStoreImage = os.path.join("pdf", imageDir, str(newpageNumber))
 
-    imageNames = list(glob.glob(pathToStoreImage+"\\*.png"))
+    imageNames = list(glob.glob(os.path.join(pathToStoreImage, "*.png")))
 
     for filepath in imageNames:
         print("Image file path",filepath)
@@ -120,9 +120,9 @@ def appendImage(responsetoquestion,newfilename,newpageNumber):
 def appendTable(responsetoquestion,newfilename,newpageNumber):
 
     tableDir = getdirname(newfilename)
-    pathToStoreTable = f"table\\" + tableDir + "\\" + str(newpageNumber)
+    pathToStoreTable = os.path.join("table", tableDir, str(newpageNumber))
 
-    imageNames = list(glob.glob(pathToStoreTable+"\\*.pkl"))
+    imageNames = list(glob.glob(os.path.join(pathToStoreTable, "*.pkl")))
 
     for filepath in imageNames:
         print("Table file path",filepath)
