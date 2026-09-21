@@ -1,7 +1,9 @@
 import base64
 import glob
+import os
 from pathlib import Path
 
+import anthropic
 from langchain_chroma import Chroma
 from langchain_text_splitters import CharacterTextSplitter
 import pandas as pd
@@ -13,10 +15,16 @@ from dotenv import load_dotenv
 from transformers import pipeline
 
 from htmlTemplates import css, bot_template, user_template
+
+load_dotenv()
+
 from langchain.embeddings.sentence_transformer import SentenceTransformerEmbeddings
 
 imageAgree = False
 showTable = False
+
+# Reads ANTHROPIC_API_KEY from the environment (.env) - never hardcode it here.
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 
 # Chain
@@ -129,15 +137,18 @@ def appendTable(responsetoquestion,newfilename,newpageNumber):
 
     return responsetoquestion
 
-def handle_userinput_getdocuments(user_question):
+def retrieve_docs(user_question):
     embedding_function = SentenceTransformerEmbeddings(model_name="all-mpnet-base-v2")
     vectorstore = Chroma("Project_NAME", persist_directory="./chroma_Name",
                          embedding_function=embedding_function, collection_metadata={"hnsw:space": "cosine"})
+    retriever = vectorstore.as_retriever()
+    return retriever.get_relevant_documents(user_question)
+
+def handle_userinput_getdocuments(user_question):
     summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
     # Retrieve and generate using the relevant snippets of the documents
-    retriever = vectorstore.as_retriever()
-    docs = retriever.get_relevant_documents(user_question)
+    docs = retrieve_docs(user_question)
 
     responsetoquestion = ""
     filename = ""
@@ -179,6 +190,34 @@ def handle_userinput_getdocuments(user_question):
     st.session_state.chat_history[user_question] = responsetoquestion
     displaychathistory()
 
+def ask_llm(user_question):
+    context = format_docs(retrieve_docs(user_question))
+
+    system_prompt = (
+        "You are an assistant for question-answering tasks. "
+        "Use the following pieces of retrieved context to answer "
+        "the question. If you don't know the answer, say that you "
+        "don't know. Use three sentences maximum and keep the "
+        "answer concise."
+        f"\n\nContext:\n{context}"
+    )
+
+    client = anthropic.Anthropic()
+    try:
+        response = client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=512,
+            temperature=0.3,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_question}],
+        )
+        result = response.content[0].text
+    except anthropic.APIError as ex:
+        result = f"An error occurred: {ex}"
+
+    st.session_state.chat_history[user_question] = result
+    displaychathistory()
+
 def text_input_handler():
     st.session_state['text_input'] = st.session_state['text_input_widget']
 
@@ -208,10 +247,14 @@ def main():
 
     user_question = st.text_input("Ask a question about your project solution:",key='text_input_widget', on_change=text_input_handler)
 
+    st.button("Ask Claude directly", on_click=click_button)
+    st.checkbox("Include Image", key="include_image", on_change=click_image)
+    st.checkbox("Include Tables", key="include_table", on_change=click_table)
+
     if st.session_state.clicked:
        # The message and nested widget will remain on the page
        st.session_state.clicked = False
-       askeli(user_question)
+       ask_llm(user_question)
 
     if "conversation" not in st.session_state:
         st.session_state.conversation = None
