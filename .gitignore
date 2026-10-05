@@ -1,2 +1,30 @@
+# Secrets
 .env
+
+# Python
 __pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Generated vector store
+chroma_Name/
+
+# Generated extracted tables
+table/
+*.pkl
+
+# Saved chat sessions / exports
+chatbot*.json
+
+# WSL metadata
+*:Zone.Identifier
+
+# Kiro knowledge base / local tooling
+.kiro/
+
+# Extracted image subfolders under pdf/ (keep source PDFs themselves)
+pdf/**/
+!pdf/
+!pdf/*.pdf

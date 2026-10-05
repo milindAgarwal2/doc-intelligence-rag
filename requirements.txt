@@ -1,0 +1,51 @@
+# Core LLM / API client (answering + summarization)
+# NOTE: anthropic 1.11.0's messages.create() does NOT accept a `temperature`
+# argument. The code omits temperature on purpose. Do not re-add it unless you
+# upgrade to an SDK version that supports it.
+anthropic==1.11.0
+
+# LangChain stack
+# retrieval uses retriever.invoke(...) (get_relevant_documents was removed)
+langchain
+langchain-core
+langchain-community
+langchain-chroma
+langchain-text-splitters
+
+# Local embeddings via ONNX (no torch/transformers) - BAAI/bge-small-en-v1.5
+fastembed
+
+# Vector store
+chromadb
+
+# PDF processing
+PyPDF2
+PyMuPDF
+pymupdf4llm
+Spire.PDF
+
+# Data handling
+# NOTE: pandas >= 2.1 removed DataFrame.applymap; the code uses DataFrame.map.
+pandas
+
+# Web UI
+streamlit
+
+# Chat-to-PDF export (renders chat HTML, incl. images/tables, to a PDF)
+xhtml2pdf
+
+# Utilities
+requests
+python-dotenv
+attrs
+
+# ---------------------------------------------------------------------------
+# Known-good versions (this environment), for reference if you need to pin:
+#   anthropic==1.11.0        attrs==26.1.0           chromadb==1.5.9
+#   fastembed==0.8.1         langchain==1.4.3        langchain-chroma==1.1.0
+#   langchain-community==0.4.2  langchain-core==1.6.6
+#   langchain-text-splitters==1.1.3  pandas==3.0.6
+#   pymupdf==1.28.2          pymupdf4llm==1.28.2     PyPDF2==3.0.1
+#   python-dotenv==1.2.4     requests==2.34.2        spire-pdf==12.9.4
+#   streamlit==1.65.0        xhtml2pdf==0.2.21       reportlab==5.0.1 (via xhtml2pdf)
+# ---------------------------------------------------------------------------
