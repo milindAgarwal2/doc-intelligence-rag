@@ -24,6 +24,9 @@ chatbot*.json
 # Kiro knowledge base / local tooling
 .kiro/
 
+# Debug screenshots
+screen/
+
 # Extracted image subfolders under pdf/ (keep source PDFs themselves)
 pdf/**/
 !pdf/

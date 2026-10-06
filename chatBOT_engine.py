@@ -97,29 +97,122 @@ def getitem(newresp, checkitem):
         index = airesponse.find(checkitem)
 
 def _clean_question_label(q):
-    """Strip internal suffixes (_IMG/_TAB/RAW) used in chat_history keys."""
-    return q.replace("_IMG", "").replace("_TAB", "").replace("RAW", "").strip()
+    """Strip internal suffixes (asset tags / RAW) used in chat_history keys."""
+    # Remove a trailing asset tag like "  ::img" / "  ::tbl" / "  ::img+tbl".
+    base = q.split("  ::", 1)[0]
+    return base.replace("_IMG", "").replace("_TAB", "").replace("RAW", "").strip()
+
+
+def _asset_tag(include_image, include_table, raw):
+    """Short human-readable tag describing which assets an answer includes."""
+    parts = []
+    if include_image:
+        parts.append("image")
+    if include_table:
+        parts.append("table")
+    if raw:
+        parts.append("raw")
+    return " + ".join(parts) if parts else "text"
+
+
+def _history_key(question, include_image, include_table, raw):
+    """Build a stable chat_history key that is UNIQUE per (question, toggles).
+
+    Each distinct combination of question + Include Image/Tables + RAW becomes its
+    own history entry, so the user can keep and revisit every variant instead of
+    one entry being overwritten. The tag after "  ::" is stripped for display by
+    _clean_question_label.
+    """
+    tag = _asset_tag(include_image, include_table, raw)
+    return f"{question}  ::{tag}"
+
+
+def _resolve_source_path(filename):
+    """Resolve a stored source file_name to an on-disk path, or None.
+
+    The stored name may be a path like "pdf/foo.pdf" or a bare "foo.pdf".
+    """
+    candidates = [filename, os.path.join("pdf", os.path.basename(filename))]
+    return next((p for p in candidates if os.path.isfile(p)), None)
+
+
+def _render_source_downloads(hist_key):
+    """Render a real download button for each source PDF cited by an answer.
+
+    Uses st.download_button (serves bytes natively) instead of inlining the PDF
+    into the answer HTML, which would garble Streamlit's renderer for large files.
+    """
+    sources = st.session_state.get("answer_sources", {}).get(hist_key, [])
+    for i, filename in enumerate(sources):
+        path = _resolve_source_path(filename)
+        label = os.path.basename(filename)
+        if not path:
+            st.caption(f"Source unavailable on disk: {label}")
+            continue
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            st.caption(f"Could not read source: {label}")
+            continue
+        st.download_button(
+            label=f"⬇️ Download source: {label}",
+            data=data,
+            file_name=label,
+            mime="application/pdf",
+            key=f"dl_{hist_key}_{i}",
+        )
+
+
+def _variant_tag(q):
+    """Return the asset-variant tag embedded in a composite history key, or ''."""
+    if "  ::" in q:
+        return q.split("  ::", 1)[1]
+    return ""
 
 
 def displaychathistory():
     history = st.session_state.chat_history
     selected = st.session_state.get("selected_question")
 
+    def _q_label(k):
+        tag = _variant_tag(k)
+        base = _clean_question_label(k)
+        return f"{base}  <span style='font-size:0.75rem;opacity:0.8;'>[{tag}]</span>" if tag else base
+
     # If a specific question was picked from the sidebar, show only that Q&A.
     if selected and selected in history:
         st.markdown(f"#### Showing selected question")
-        st.write(user_template.replace("{{MSG}}", _clean_question_label(selected)),
-                 unsafe_allow_html=True)
-        st.write(bot_template.replace("{{MSG}}", history[selected]),
-                 unsafe_allow_html=True)
+        st.markdown(user_template.replace("{{MSG}}", _q_label(selected)),
+                    unsafe_allow_html=True)
+        st.markdown(bot_template.replace("{{MSG}}", history[selected]),
+                    unsafe_allow_html=True)
+        _render_source_downloads(selected)
         return
 
     # Otherwise show the whole conversation, newest first.
     reversechat = dict(reversed(list(history.items())))
     for i, (k, v) in enumerate(reversechat.items()):
-        st.write(user_template.replace("{{MSG}}", _clean_question_label(k)),
-                 unsafe_allow_html=True)
-        st.write(bot_template.replace("{{MSG}}", v), unsafe_allow_html=True)
+        st.markdown(user_template.replace("{{MSG}}", _q_label(k)),
+                    unsafe_allow_html=True)
+        st.markdown(bot_template.replace("{{MSG}}", v), unsafe_allow_html=True)
+        _render_source_downloads(k)
+
+def _source_link_html(filename):
+    """Return a lightweight 'From:' source label for a document.
+
+    IMPORTANT: we deliberately do NOT inline the source PDF as a base64 data: URI.
+    A multi-MB PDF base64-encodes to many millions of characters, and dumping that
+    inline into st.write(..., unsafe_allow_html=True) overwhelms Streamlit's
+    renderer and garbles the whole answer. Images (small PNGs) are still inlined
+    in appendImage; only the bulky source PDF is reduced to a plain label here.
+
+    For a downloadable source PDF, use a separate st.download_button in the UI
+    layer (it serves bytes natively without bloating the answer HTML).
+    """
+    label = os.path.basename(filename)
+    return f"From: <b>{label}</b> | "
+
 
 def appendImage(responsetoquestion,newfilename,newpageNumber):
 
@@ -129,13 +222,57 @@ def appendImage(responsetoquestion,newfilename,newpageNumber):
     imageNames = list(glob.glob(os.path.join(pathToStoreImage, "*.png")))
 
     for filepath in imageNames:
-        print("Image file path",filepath)
-        file_url = f"http://localhost:8000/{filepath}"
-        print("File URL",file_url)
-        imageTag = f"<img src='{file_url}'><br>"
+        print("Image file path", filepath)
+        # Inline the image as a base64 data URI so the browser renders it without
+        # a separate HTTP fetch (no static server needed). Large images are
+        # downscaled/recompressed first: inlining a multi-MB image produces
+        # millions of characters of markup that overwhelm Streamlit's renderer
+        # and garble the answer. Target a sane on-screen size instead.
+        data_uri = _image_to_data_uri(filepath)
+        if not data_uri:
+            continue
+        imageTag = f"<img src='{data_uri}' style='max-width:100%;height:auto;'><br>"
         responsetoquestion = responsetoquestion + imageTag
 
     return responsetoquestion
+
+
+def _image_to_data_uri(filepath, max_dim=1200, jpeg_quality=80):
+    """Return a compact base64 data: URI for an image, downscaling if large.
+
+    Images wider/taller than ``max_dim`` are resized preserving aspect ratio.
+    Encoded as JPEG (much smaller than PNG for photos/diagrams) unless the image
+    has transparency, in which case PNG is kept. Returns an empty string on any
+    read/decode error so a single bad image never blanks the answer.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(filepath) as img:
+            has_alpha = img.mode in ("RGBA", "LA") or (
+                img.mode == "P" and "transparency" in img.info
+            )
+
+            # Downscale if either dimension exceeds the cap.
+            w, h = img.size
+            if max(w, h) > max_dim:
+                scale = max_dim / float(max(w, h))
+                img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+
+            buf = io.BytesIO()
+            if has_alpha:
+                img.save(buf, format="PNG", optimize=True)
+                mime = "image/png"
+            else:
+                img.convert("RGB").save(
+                    buf, format="JPEG", quality=jpeg_quality, optimize=True
+                )
+                mime = "image/jpeg"
+            b64 = base64.b64encode(buf.getvalue()).decode()
+        return f"data:{mime};base64,{b64}"
+    except Exception as ex:
+        print("Could not process image", filepath, ex)
+        return ""
 
 def _render_table_html(df):
     """Render a pandas DataFrame as a clean, self-contained HTML table.
@@ -253,6 +390,9 @@ def handle_userinput_getdocuments(user_question):
             # from the same page are retrieved.
             rendered_images = set()
             rendered_tables = set()
+            # Source documents referenced by this answer, in first-seen order.
+            # Used to render real st.download_button widgets below the answer.
+            source_files = []
 
             for text in docs:
                 newfilename = text.metadata['file_name']
@@ -264,8 +404,13 @@ def handle_userinput_getdocuments(user_question):
                 if filename != newfilename:
                     filename = newfilename
                     print("Filename:", filename)
-                    file_url = f"http://localhost:8000/{filename}"
-                    responsetoquestion += f"From: <a href='{file_url}' download>{filename}</a> | "
+                    if filename not in source_files:
+                        source_files.append(filename)
+                    # Lightweight text label in the answer HTML. The actual
+                    # downloadable PDF is offered via a separate st.download_button
+                    # (see displaychathistory) because inlining a multi-MB PDF as
+                    # a base64 data: URI garbles Streamlit's renderer.
+                    responsetoquestion += _source_link_html(filename)
 
                 if pageNumber != newpageNumber:
                     pageNumber = newpageNumber
@@ -273,9 +418,13 @@ def handle_userinput_getdocuments(user_question):
 
                 if "RAW" not in user_question:
                     summary = summarize_with_claude(client, text.page_content)
-                    responsetoquestion = responsetoquestion + summary + "\n <br>"
+                    responsetoquestion = responsetoquestion + f"<p>{summary}</p>"
                 else:
-                    responsetoquestion = responsetoquestion + text.page_content + "\n <br>"
+                    import html as _html
+                    raw = _html.escape(text.page_content)
+                    responsetoquestion = responsetoquestion + (
+                        f"<pre style='white-space:pre-wrap;word-wrap:break-word;'>{raw}</pre>"
+                    )
 
                 if (imagePresent == 1 and st.session_state.get('include_image', False)
                         and page_key not in rendered_images):
@@ -293,12 +442,24 @@ def handle_userinput_getdocuments(user_question):
         if not responsetoquestion:
             responsetoquestion = f"<p style='color:red;'>Error: {ex}</p>"
 
-    # Use the raw question as the stable key for history, selection and the
-    # rerun guard. (Previously the key was mutated with _IMG/_TAB suffixes,
-    # which caused mismatches and blank renders.)
-    st.session_state.chat_history[user_question] = responsetoquestion
-    # Focus the main window on the question just asked.
-    st.session_state.selected_question = user_question
+    # Key history uniquely per (question + Include Image/Tables + RAW) so every
+    # toggle combination is kept as its own entry instead of overwriting the
+    # single question. The display label strips the tag via _clean_question_label.
+    include_image = st.session_state.get("include_image", False)
+    include_table = st.session_state.get("include_table", False)
+    raw = "RAW" in user_question
+    key = _history_key(user_question, include_image, include_table, raw)
+    st.session_state.chat_history[key] = responsetoquestion
+    # Remember which source PDFs this answer cited, so displaychathistory can
+    # render a real download button per source.
+    if "answer_sources" not in st.session_state:
+        st.session_state.answer_sources = {}
+    try:
+        st.session_state.answer_sources[key] = source_files
+    except NameError:
+        st.session_state.answer_sources[key] = []
+    # Focus the main window on the variant just produced.
+    st.session_state.selected_question = key
 
 
 def ask_llm(user_question):
@@ -347,21 +508,29 @@ def click_button():
 
 def click_image():
     st.session_state.clicked = False
-    print("Click status", st.session_state['include_image'])
+    # No need to clear the rerun guard: the history key includes the toggle
+    # state, so flipping this checkbox produces a new composite key and the
+    # main loop generates a fresh entry for the (question + image) variant.
+    print("Click status include_image =", st.session_state.get('include_image'))
 
 def click_table():
     st.session_state.clicked = False
-    print("Click status", st.session_state['include_table'])
+    print("Click status include_table =", st.session_state.get('include_table'))
 
 
 def _pdf_link_callback(uri, rel):
     """Resolve URIs referenced in the chat HTML to local file paths for xhtml2pdf.
 
-    The chat answers embed asset links as http://localhost:8000/<path>. Those map
-    directly to files under the project directory, so we strip the host prefix and
-    return the on-disk path. This makes the PDF self-contained and avoids depending
-    on the static server being up.
+    Images and source links in answers are now inlined as base64 ``data:`` URIs,
+    which xhtml2pdf renders natively — those are passed through unchanged. The
+    legacy ``http://localhost:8000/<path>`` handling is kept as a safety net so
+    older chat histories (built when the static server was in use) still export
+    correctly by mapping the host prefix to the on-disk file.
     """
+    # Base64 data URIs are self-contained; let xhtml2pdf handle them directly.
+    if uri.startswith("data:"):
+        return uri
+
     project_root = os.path.abspath(os.path.dirname(__file__))
 
     for prefix in ("http://localhost:8000/", "http://127.0.0.1:8000/"):
@@ -439,14 +608,14 @@ def main():
     st.set_page_config(page_title="Chat with project solution",
                        page_icon=":books:")
 
-    st.write(css, unsafe_allow_html=True)
+    st.markdown(css, unsafe_allow_html=True)
 
     if 'clicked' not in st.session_state:
         st.session_state.clicked = False
 
     user_question = st.text_input("Ask a question about your project solution:",key='text_input_widget', on_change=text_input_handler)
 
-    st.button("Ask Claude directly", on_click=click_button)
+    st.button("Concise answer", on_click=click_button)
     st.checkbox("Include Image", key="include_image", on_change=click_image)
     st.checkbox("Include Tables", key="include_table", on_change=click_table)
 
@@ -464,12 +633,18 @@ def main():
     if "last_processed_question" not in st.session_state:
         st.session_state.last_processed_question = None
 
-    # Only process a genuinely new submission. st.text_input returns its current
-    # value on every rerun, so without this guard a sidebar click (which triggers
-    # a rerun) would re-run the query and overwrite the user's selection.
-    if user_question and user_question != st.session_state.last_processed_question:
-        st.session_state.last_processed_question = user_question
-        handle_userinput_getdocuments(user_question)
+    # Process a submission once per unique (question + toggle state). Keying the
+    # guard on the composite history key means toggling Include Image/Tables for
+    # the same question is treated as a NEW variant and generates its own entry,
+    # instead of being suppressed as a duplicate.
+    if user_question:
+        _ii = st.session_state.get("include_image", False)
+        _it = st.session_state.get("include_table", False)
+        _raw = "RAW" in user_question
+        current_key = _history_key(user_question, _ii, _it, _raw)
+        if current_key != st.session_state.last_processed_question:
+            st.session_state.last_processed_question = current_key
+            handle_userinput_getdocuments(user_question)
 
     # Render the main window FIRST so the answer always appears, independent of
     # anything that happens in the sidebar (PDF generation, etc.).
@@ -490,7 +665,9 @@ def main():
                 questions = list(reversed(list(st.session_state.chat_history.keys())))
                 for idx, q in enumerate(questions):
                     label = _clean_question_label(q)
-                    display = (label[:50] + "…") if len(label) > 50 else label
+                    label = (label[:40] + "…") if len(label) > 40 else label
+                    tag = _variant_tag(q)
+                    display = f"{label} [{tag}]" if tag else label
                     is_selected = (q == st.session_state.selected_question)
                     st.button(
                         ("▶ " if is_selected else "") + display,

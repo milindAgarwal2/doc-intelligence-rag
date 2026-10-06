@@ -72,19 +72,15 @@ attribution** (document name + page number) for explainable (XAI) results.
    Browser  ◀────▶ │  chatBOT_engine.py  (Streamlit, port 8501)    │
                    │   • retrieves chunks                           │
                    │   • summarizes with Claude                     │
-                   │   • renders page images/tables                 │
-                   └───────────────┬──────────────────────────────┘
-                                   │  <img>/<a> URLs → http://localhost:8000/...
-                                   ▼
-                   ┌──────────────────────────────────────────────┐
-                   │  Static file server (port 8000)               │
-                   │   serves PDFs, extracted images, tables, logos │
-                   └──────────────────────────────────────────────┘
+                   │   • renders page images/tables inline          │
+                   │     (base64 data: URIs / HTML — no server)     │
+                   └────────────────────────────────────────────────┘
 ```
 
-> ⚠️ **Two services are required.** The Streamlit UI embeds asset links as
-> `http://localhost:8000/...`, so a **static file server on port 8000** must run
-> alongside the app or images, tables, PDF links, and logos will appear broken.
+> **One service only.** The Streamlit UI inlines images, tables, and the source-PDF
+> link directly into each answer (images/PDFs as base64 `data:` URIs, tables as
+> HTML), so no companion static file server is required. Source PDFs larger than
+> 8 MB are shown as a plain filename label rather than an inline download link.
 
 ---
 
@@ -217,15 +213,11 @@ Expected: a `DOC_COUNT:` greater than 0.
 
 ## Running the App
 
-Start **both** services (two terminals, both with the venv activated).
+Only **one** service is required — the UI inlines images, tables, and source-PDF
+links directly into the page (base64 `data:` URIs / HTML), so no static file
+server is needed.
 
-**Terminal 1 — static file server (port 8000):**
-
-```bash
-python -m http.server 8000
-```
-
-**Terminal 2 — Streamlit chatbot (port 8501):**
+**Streamlit chatbot (port 8501):**
 
 ```bash
 streamlit run chatBOT_engine.py
@@ -284,8 +276,7 @@ streamlit run embeddingGUI.py --server.port 8502
 Service health checks:
 
 ```bash
-curl -s -o /dev/null -w "static:%{http_code}\n" http://localhost:8000/
-curl -s -o /dev/null -w "app:%{http_code}\n"    http://localhost:8501/
+curl -s -o /dev/null -w "app:%{http_code}\n" http://localhost:8501/
 ```
 
 Both should return `200`.
@@ -320,7 +311,7 @@ ChatBOT/
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Images/tables/PDF links broken | Static server (8000) not running / wrong dir | Start `python -m http.server 8000` from project root |
+| Images not rendering | Image never extracted for that page, or asset deleted | Confirm `pdf/<doc>/<page>/*.png` exists; re-embed the PDF if missing |
 | Auth / `ANTHROPIC_API_KEY` error | `.env` missing or key unset | Recheck [Configuration](#configuration) |
 | Anthropic 404 / model not found | `ANTHROPIC_MODEL` unavailable to your account | Set a valid Claude model id in `.env` |
 | Empty/garbled answers, dim mismatch | Store built with a different embedding model | `rm -rf chroma_Name` and rebuild |
@@ -332,7 +323,7 @@ ChatBOT/
 | `get_relevant_documents` AttributeError | Old LangChain API | Use `retriever.invoke(...)` (already applied) |
 | `applymap` AttributeError | Newer pandas | Use `DataFrame.map` (already applied) |
 | Garbled table values | Imperfect extraction on complex layouts | `lines_strict` strategy reduces this; verify via the source page link |
-| Chat shows nothing after a question | Static server down, or stale UI | Ensure port 8000 is up; the chat renders before the sidebar and PDF export is lazy |
+| Chat shows nothing after a question | Stale UI | Re-run the query; the chat renders before the sidebar and PDF export is lazy |
 
 ---
 
@@ -365,10 +356,8 @@ For anything beyond local/dev use:
   host. Both hosts **must use the same embedding model** (`BAAI/bge-small-en-v1.5`).
 - **Reverse proxy + TLS:** front Streamlit (8501) and the static server (8000)
   with nginx/Caddy; terminate TLS there.
-- **Do not expose `python -m http.server` to the internet.** Replace with nginx
-  static serving scoped to the asset directories, behind authentication.
 - **Auth:** put SSO/auth in front of the UI via the reverse proxy.
-- **Process supervision:** run both services under systemd/supervisord/containers.
+- **Process supervision:** run the app under systemd/supervisord/containers.
 - **Secrets:** store `ANTHROPIC_API_KEY` in a secrets manager, not plaintext `.env`.
 - **Reproducibility:** pin dependency versions in `requirements.txt`.
 
@@ -384,9 +373,6 @@ cp .env.example .env            # edit .env → add ANTHROPIC_API_KEY
 mkdir -p pdf && cp /path/to/*.pdf pdf/
 python embeddingEngine.py       # build vector store + extract images/tables
 
-# Terminal 1
-python -m http.server 8000
-# Terminal 2
 streamlit run chatBOT_engine.py
 # → open http://localhost:8501
 ```

@@ -116,8 +116,9 @@ ANTHROPIC_API_KEY=sk-ant-...your-key...
 # SKIP_PAGES=0        # leading pages to skip per PDF (cover/TOC); default 0
 ```
 
-Optional branding assets in the project root (served by the static server):
-`AI.png`, `users.png`, `ericssonlogo.png`.
+Optional branding assets in the project root (inlined into the page as base64 at
+load time, if present): `AI.png`, `users.png`, `ericssonlogo.png`. Missing assets
+are skipped gracefully — no broken image icons.
 
 ---
 
@@ -142,16 +143,11 @@ For **incremental** add/remove without a full rebuild, use the Embedding Manager
 
 ## Running the app
 
-Two services are required (the UI embeds asset links as `http://localhost:8000/...`).
-Use two terminals, both with the venv activated.
+Only **one** service is required. Images, tables, and the source-PDF links are
+inlined directly into the page (images and PDFs as base64 `data:` URIs, tables as
+HTML), so **no static file server is needed**.
 
-**Terminal 1 — static file server (port 8000):**
-
-```bash
-python -m http.server 8000
-```
-
-**Terminal 2 — Streamlit chatbot (port 8501):**
+**Streamlit chatbot (port 8501):**
 
 ```bash
 streamlit run chatBOT_engine.py
@@ -161,8 +157,10 @@ streamlit run chatBOT_engine.py
 
 Open **http://localhost:8501**.
 
-> ⚠️ If the static server on 8000 is not running, text and tables still render, but
-> images and PDF links appear broken.
+> Images and the source-PDF download link are embedded in the answer itself, so
+> they render without any companion server. Very large source PDFs (>8 MB) are
+> shown as a plain filename label instead of an inline download link to keep the
+> page lightweight.
 
 ---
 
@@ -222,8 +220,7 @@ Features:
 Service health:
 
 ```bash
-curl -s -o /dev/null -w "static:%{http_code}\n" http://localhost:8000/
-curl -s -o /dev/null -w "app:%{http_code}\n"    http://localhost:8501/
+curl -s -o /dev/null -w "app:%{http_code}\n" http://localhost:8501/
 ```
 
 ---
@@ -232,7 +229,7 @@ curl -s -o /dev/null -w "app:%{http_code}\n"    http://localhost:8501/
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Images / PDF links broken | Static server (8000) not running | Start `python -m http.server 8000` from project root |
+| Images not rendering | Image never extracted for that page, or asset deleted | Confirm `pdf/<doc>/<page>/*.png` exists; re-embed the PDF if missing |
 | `ANTHROPIC_API_KEY` error | `.env` missing or key unset | Add the key to `.env` |
 | `temperature` TypeError | `temperature` re-added to a Claude call | Remove it — SDK 1.11.0 doesn't support it |
 | `get_relevant_documents` AttributeError | Old LangChain API | Use `retriever.invoke(...)` (already applied) |
@@ -264,9 +261,7 @@ cp .env.example .env            # add ANTHROPIC_API_KEY
 mkdir -p pdf && cp /path/to/*.pdf pdf/
 python embeddingEngine.py       # build store + extract images/tables
 
-# Terminal 1
-python -m http.server 8000
-# Terminal 2
+# Run the app
 streamlit run chatBOT_engine.py
 # → http://localhost:8501
 
