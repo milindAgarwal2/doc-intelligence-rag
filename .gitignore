@@ -27,6 +27,10 @@ chatbot*.json
 # Debug screenshots
 screen/
 
+# Local SLM model weights (large; downloaded separately, not shipped)
+models/
+*.gguf
+
 # Extracted image subfolders under pdf/ (keep source PDFs themselves)
 pdf/**/
 !pdf/

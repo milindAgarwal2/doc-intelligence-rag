@@ -27,6 +27,12 @@ Spire.PDF
 # PPTX processing (native slide text/picture/table extraction)
 python-pptx
 
+# Optional local SLM provider (Qwen2.5-1.5B-Instruct GGUF via llama.cpp).
+# Only needed if config.json sets "llm_provider": "qwen". The model .gguf file
+# is NOT shipped — download it once (see README) to models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+# or set QWEN_GGUF_PATH in .env. llama-cpp-python runs it in-process on CPU.
+llama-cpp-python
+
 # Data handling
 # NOTE: pandas >= 2.1 removed DataFrame.applymap; the code uses DataFrame.map.
 pandas
@@ -52,4 +58,5 @@ attrs
 #   python-dotenv==1.2.4     requests==2.34.2        spire-pdf==12.9.4
 #   streamlit==1.65.0        xhtml2pdf==0.2.21       reportlab==5.0.1 (via xhtml2pdf)
 #   python-pptx==1.0.2       XlsxWriter==3.2.9 (via python-pptx)
+#   llama-cpp-python==0.3.36  diskcache==5.6.3 (via llama-cpp-python)
 # ---------------------------------------------------------------------------

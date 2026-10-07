@@ -16,8 +16,16 @@ load_dotenv()
 from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
+from config import load_config, VALID_PROVIDERS
+
 # Reads ANTHROPIC_API_KEY from the environment (.env) - never hardcode it here.
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
+
+# Local Qwen SLM GGUF path (used only when provider == "qwen"). Override via env.
+QWEN_GGUF_PATH = os.getenv(
+    "QWEN_GGUF_PATH",
+    os.path.join("models", "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +201,20 @@ _SYNTH_SYSTEM = (
     "handles the visual rendering."
 )
 
+# Small models (Qwen 1.5B) need a stronger, example-driven nudge to reliably emit
+# the [filename p.N] citation markers that Claude produces naturally. Appended
+# ONLY for the Qwen path (Claude follows the base prompt fine).
+_QWEN_CITATION_REINFORCE = (
+    "\n\nCITATION RULES (follow exactly):\n"
+    "- After EVERY sentence or bullet point, append the source marker in square "
+    "brackets copied verbatim from the matching [Source: <filename> p.<page>] line "
+    "in the context, written as [<filename> p.<page>].\n"
+    "- Every bullet must end with at least one such marker.\n"
+    "Example of the required style:\n"
+    "  The board uses the RP2040 chip [datasheet.pdf p.3].\n"
+    "  - It has 2 MB of flash memory [datasheet.pdf p.3].\n"
+)
+
 
 def stream_synthesized_answer(client, user_question, docs):
     """Yield the synthesized answer token-by-token using Claude streaming.
@@ -225,6 +247,122 @@ def stream_synthesized_answer(client, user_question, docs):
                 pass
     except Exception as ex:  # pragma: no cover - network/credential errors
         yield f"\n\n_Error generating answer: {type(ex).__name__}: {ex}_"
+
+
+# ---------------------------------------------------------------------------
+# Provider abstraction: claude | qwen (local SLM) | none (extractive)
+# ---------------------------------------------------------------------------
+def provider_available(name):
+    """Return True if the given provider can actually run right now.
+
+    - claude:  an ANTHROPIC_API_KEY is set
+    - qwen:    llama-cpp-python importable AND the GGUF model file exists
+    - none:    always available (extractive needs no generation)
+    """
+    if name == "claude":
+        return bool(os.getenv("ANTHROPIC_API_KEY"))
+    if name == "qwen":
+        if not os.path.isfile(QWEN_GGUF_PATH):
+            return False
+        try:
+            import llama_cpp  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    if name == "none":
+        return True
+    return False
+
+
+def resolve_provider(requested):
+    """Resolve the effective provider with auto-fallback so the app never breaks.
+
+    If the requested provider is unavailable, fall back to extractive ("none").
+    Returns the effective provider string. Logs a server-side note on fallback so
+    it stays transparent to the chat user.
+    """
+    if requested not in VALID_PROVIDERS:
+        requested = "none"
+    if provider_available(requested):
+        return requested
+    if requested != "none":
+        print(f"[provider] '{requested}' unavailable; falling back to extractive.")
+    return "none"
+
+
+@st.cache_resource(show_spinner="Loading local Qwen model…")
+def _qwen_llm():
+    """Load the Qwen GGUF once per process (cached). Returns a llama_cpp.Llama."""
+    from llama_cpp import Llama
+
+    return Llama(
+        model_path=QWEN_GGUF_PATH,
+        n_ctx=4096,
+        n_threads=max(1, (os.cpu_count() or 2) - 1),
+        verbose=False,
+        chat_format="qwen",
+    )
+
+
+def stream_qwen_answer(user_question, docs):
+    """Stream a synthesized answer from the local Qwen SLM.
+
+    Uses the shared grounding prompt PLUS an explicit, example-driven citation
+    reinforcement (small models otherwise tend to drop the [file p.N] markers).
+    Yields text deltas; on any error, yields an error string.
+    """
+    context, _pages = _build_context(docs)
+    system_prompt = f"{_SYNTH_SYSTEM}{_QWEN_CITATION_REINFORCE}\n\nContext:\n{context}"
+    # Restating the citation requirement next to the question helps a small model
+    # keep it in mind while generating.
+    user_msg = (
+        f"{user_question}\n\n"
+        "Remember: end every sentence and bullet with its [<filename> p.<page>] "
+        "citation copied from the context's [Source: ...] markers."
+    )
+    try:
+        llm = _qwen_llm()
+        stream = llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+            max_tokens=1024,
+            temperature=0.2,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk["choices"][0].get("delta", {})
+            piece = delta.get("content")
+            if piece:
+                yield piece
+    except Exception as ex:  # pragma: no cover
+        yield f"\n\n_Error generating answer (Qwen): {type(ex).__name__}: {ex}_"
+
+
+def render_extractive(docs):
+    """Build an extractive answer: the retrieved passages verbatim, each under a
+    [<file> p.<N>] source header. No LLM/generation involved. Returns the full
+    answer text (markdown). Citations in the text drive the same asset/download
+    scoping used for the generative providers.
+    """
+    if not docs:
+        return "I couldn't find anything relevant in the indexed documents."
+    lines = [
+        "_No answer-generation model is configured, so here are the most "
+        "relevant passages from your documents:_\n"
+    ]
+    seen = set()
+    for d in docs:
+        fname = os.path.basename(d.metadata.get("file_name", "unknown"))
+        page = d.metadata.get("pagenumber", "?")
+        key = (fname, page, d.page_content[:60])
+        if key in seen:
+            continue
+        seen.add(key)
+        passage = d.page_content.strip()
+        lines.append(f"**[{fname} p.{page}]**\n\n{passage}\n")
+    return "\n".join(lines)
 
 
 def _cited_pages(answer_text, offered_pages):
@@ -357,14 +495,14 @@ def chat_history_to_pdf(messages):
 # ---------------------------------------------------------------------------
 # Core answer flow (retrieve → stream synthesized answer → render assets)
 # ---------------------------------------------------------------------------
-def answer_question(user_question, include_image, include_table):
+def answer_question(user_question, include_image, include_table, provider):
     """Run one Q&A turn and append it to st.session_state.messages.
 
-    Streams the synthesized answer into the live chat bubble, then renders cited
-    images/tables and source download buttons. Returns the assistant turn dict.
+    ``provider`` is the effective backend ("claude" | "qwen" | "none"). Claude and
+    Qwen stream a synthesized answer; "none" renders retrieved passages verbatim
+    (extractive). Then cited images/tables and source downloads are rendered.
+    Returns the assistant turn dict. The provider is transparent to the chat user.
     """
-    client = anthropic.Anthropic(timeout=60.0, max_retries=2)
-
     with st.spinner("Searching your documents…"):
         docs = retrieve_docs(user_question)
 
@@ -373,25 +511,30 @@ def answer_question(user_question, include_image, include_table):
         offered_pages = []
     else:
         _, offered_pages = _build_context(docs)
-        # Stream the answer live into the chat bubble.
-        placeholder = st.empty()
-        acc = []
 
-        def _gen():
-            for delta in stream_synthesized_answer(client, user_question, docs):
+        if provider == "none":
+            # Extractive: no generation, show the passages verbatim.
+            answer_text = render_extractive(docs)
+            st.markdown(answer_text)
+        else:
+            # Generative (claude or qwen): stream into the live chat bubble.
+            placeholder = st.empty()
+            acc = []
+            if provider == "qwen":
+                gen = stream_qwen_answer(user_question, docs)
+            else:  # claude
+                client = anthropic.Anthropic(timeout=60.0, max_retries=2)
+                gen = stream_synthesized_answer(client, user_question, docs)
+            for delta in gen:
                 acc.append(delta)
                 placeholder.markdown("".join(acc))
-                yield delta
-
-        for _ in _gen():
-            pass
-        answer_text = "".join(acc)
-        placeholder.markdown(answer_text)
+            answer_text = "".join(acc)
+            placeholder.markdown(answer_text)
 
     # Scope downloads AND rendered assets to what the answer actually cited, so
-    # a cross-document chunk that MMR retrieved but the answer never used doesn't
-    # show a stray download button or figure. _cited_pages falls back to all
-    # retrieved pages only when the answer contains no detectable citation.
+    # a cross-document chunk that retrieval pulled in but the answer never used
+    # doesn't show a stray download button or figure. _cited_pages falls back to
+    # all retrieved pages when no citation is detected (true for extractive).
     cited_pages = _cited_pages(answer_text, offered_pages) if offered_pages else []
 
     sources = []
@@ -421,6 +564,12 @@ def answer_question(user_question, include_image, include_table):
 def _init_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []  # list of turn dicts
+    # Resolve the answer provider ONCE per session from config.json (written by
+    # the upload GUI). Auto-fallback to extractive if it's not actually usable.
+    # This is transparent to the chat user — there is no provider control here.
+    if "provider" not in st.session_state:
+        requested = load_config().get("llm_provider", "none")
+        st.session_state.provider = resolve_provider(requested)
 
 
 def _render_turn(turn, idx):
@@ -447,6 +596,16 @@ def main():
         "Ask questions about your indexed PDFs. Answers are synthesized from the "
         "documents with inline source citations."
     )
+
+    # One-time heads-up when the local Qwen SLM is the active engine: it runs on
+    # CPU and is noticeably slower than the cloud model, so set expectations.
+    if st.session_state.get("provider") == "qwen":
+        st.warning(
+            "⏳ This session uses the local **Qwen** model (offline, on CPU). "
+            "Answers are slower — expect roughly **1–2 minutes per answer**, and a "
+            "longer wait on the first question while the model loads. The answer "
+            "streams in as it's generated."
+        )
 
     # Sidebar: answer options + export + reset.
     with st.sidebar:
@@ -490,7 +649,9 @@ def main():
 
         # Generate + stream the assistant answer inside its bubble.
         with st.chat_message("assistant"):
-            turn = answer_question(prompt, include_image, include_table)
+            turn = answer_question(
+                prompt, include_image, include_table, st.session_state.provider
+            )
             if turn.get("sources"):
                 _render_source_downloads(turn["sources"], len(st.session_state.messages))
         st.session_state.messages.append(turn)

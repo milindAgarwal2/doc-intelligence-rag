@@ -148,9 +148,44 @@ cp .env.example .env
 ANTHROPIC_API_KEY=sk-ant-...your-key...
 # Optional override:
 # ANTHROPIC_MODEL=claude-sonnet-5
+# Optional: path to the local Qwen GGUF (only for the "Qwen" answer engine)
+# QWEN_GGUF_PATH=models/qwen2.5-1.5b-instruct-q4_k_m.gguf
 ```
 
-> 🔐 `.env` is git-ignored. **Never commit your API key** or hardcode it in source.
+> 🔐 `.env` is git-ignored and holds **only secrets** (the API key). **Never commit
+> your API key** or hardcode it in source.
+
+### Answer engine (LLM provider)
+
+The chatbot's answer backend is single-select, stored in **`config.json`** (tracked,
+non-secret, default `{"llm_provider": "none"}`). Choose it in the Embedding Manager
+GUI sidebar; the chatbot reads it once per session and uses it transparently.
+
+| Provider | Needs |
+|---|---|
+| `claude` | `ANTHROPIC_API_KEY` in `.env` |
+| `qwen` | `llama-cpp-python` (in `requirements.txt`) + a Qwen2.5-1.5B-Instruct **GGUF** (~1 GB) |
+| `none` | nothing — extractive (shows retrieved passages verbatim) |
+
+For the **Qwen** option, download the GGUF once (not shipped in the repo):
+
+```bash
+mkdir -p models
+wget -c -O models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
+  "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true"
+# or set QWEN_GGUF_PATH in .env to an existing .gguf path
+```
+
+> ⚠️ **Qwen trade-offs:** it runs locally on **CPU**, so it's **slow (~1–2 min per
+> answer)** and may **omit the inline `[file p.N]` citations** that Claude produces.
+> The chatbot shows a warning banner when Qwen is active. Source **download buttons**
+> still appear in all modes. Building `llama-cpp-python` needs a C/C++ toolchain
+> (e.g. `build-essential`).
+
+If the selected engine isn't available at runtime, the chatbot auto-falls back to
+`none` (extractive), so it never breaks. A fresh clone defaults to `none` and runs
+with no API key and no model download. **Provider changes take effect on the next
+chat session — refresh the chatbot tab after switching.**
 
 **(Optional) Branding/avatar assets** — place these in the project root so the
 static server can serve them (the UI references them, but the chat works without
@@ -329,6 +364,11 @@ ChatBOT/
 | `streamlit: command not found` | venv not active / deps missing | `source .venv/bin/activate`, reinstall deps |
 | `spire` / `fitz` import error on ingest | Ingestion deps missing | Ensure `Spire.PDF` + `PyMuPDF` installed |
 | Content seems skipped | `SKIP_PAGES` set too high | Lower `SKIP_PAGES` in `.env` (default `0` processes all pages) |
+| Provider change not applied | Provider read once per session | Refresh the chatbot tab for a new session |
+| Selected Qwen but answers are extractive | GGUF missing / `llama-cpp-python` not built → auto-fallback | Download the GGUF to `models/` (or set `QWEN_GGUF_PATH`); `pip install -r requirements.txt` |
+| Qwen very slow | 1.5B model on CPU | Expected (~1–2 min/answer); use Claude for speed |
+| Qwen omits `[file p.N]` citations | Small-model limitation | Expected; source download buttons still appear; use Claude for strict citations |
+| `llama-cpp-python` build fails | Missing C/C++ toolchain | Install `build-essential` (Debian/Ubuntu) or skip Qwen (use `claude`/`none`) |
 | `temperature` TypeError | `temperature` re-added to a Claude call | Remove it — anthropic 1.11.0 doesn't support it |
 | `get_relevant_documents` AttributeError | Old LangChain API | Use `retriever.invoke(...)` (already applied) |
 | `applymap` AttributeError | Newer pandas | Use `DataFrame.map` (already applied) |

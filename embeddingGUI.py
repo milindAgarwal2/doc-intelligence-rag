@@ -23,9 +23,17 @@ from embeddingEngine import (
     delete_document,
     getdirname,
 )
+from config import load_config, save_config, VALID_PROVIDERS
 
 PDF_DIR = "pdf"
 PPTX_DIR = "pptx"
+
+# Human-readable labels for the provider radio.
+_PROVIDER_LABELS = {
+    "claude": "Claude (Anthropic API) — best quality, needs ANTHROPIC_API_KEY",
+    "qwen": "Qwen 1.5B (local, offline) — needs the GGUF model file",
+    "none": "None (extractive) — show source passages, no generation",
+}
 
 
 def _dest_dir_for(filename):
@@ -59,6 +67,31 @@ def main():
     load_dotenv()
     st.set_page_config(page_title="Embedding Manager", page_icon="📥", layout="wide")
     st.title("📥 Document Embedding Manager")
+
+    # ---- Answer provider (single-select, writes config.json) ----
+    # This is an admin setting: it controls which backend the CHATBOT uses to
+    # answer. Only one can be active at a time. The chat app reads this once per
+    # session, transparently — chat users don't see or choose the provider.
+    with st.sidebar:
+        st.subheader("Answer engine (chatbot)")
+        cfg = load_config()
+        current = cfg.get("llm_provider", "none")
+        options = list(VALID_PROVIDERS)  # ("claude", "qwen", "none")
+        choice = st.radio(
+            "Which model should the chatbot use to answer?",
+            options,
+            index=options.index(current) if current in options else options.index("none"),
+            format_func=lambda p: _PROVIDER_LABELS.get(p, p),
+        )
+        if choice != current:
+            save_config({"llm_provider": choice})
+            st.success(f"Answer engine set to: {choice}. New chat sessions will use it.")
+        st.caption(
+            "Only one engine is active at a time. If the selected engine isn't "
+            "available at runtime (missing API key or model file), the chatbot "
+            "automatically falls back to extractive mode."
+        )
+        st.divider()
 
     vectorstore = _load_vectorstore()
 

@@ -37,8 +37,10 @@ query time (reconstructing those assets from metadata and rendering them inline)
 
 - **Embeddings:** local & offline via [`fastembed`](https://github.com/qdrant/fastembed),
   model `BAAI/bge-small-en-v1.5` (ONNX, **no PyTorch**)
-- **LLM:** Anthropic Claude — a single **streamed, synthesized** answer per question,
-  grounded in retrieved context with inline source/page citations
+- **Answer engine (pluggable, single-select):** **Claude** (Anthropic API),
+  **Qwen 1.5B** (local SLM via `llama-cpp-python`, offline), or **None** (extractive —
+  show the retrieved passages verbatim, no generation). Selected in the Embedding
+  Manager GUI; the chatbot uses it transparently.
 - **Retrieval:** Chroma with **MMR** (max-marginal-relevance; `k=8`, `fetch_k=24`,
   `lambda_mult=0.6`) for better recall and less near-duplicate noise
 - **Vector store:** Chroma — collection `Project_NAME`, persisted at `./chroma_Name`
@@ -98,8 +100,9 @@ Generated at runtime: `chroma_Name/` (vector store), `table/<doc>/<page>/*.pkl`,
 | Requirement | Details |
 |---|---|
 | Python | 3.10 – 3.12 |
-| Anthropic API key | With access to the configured Claude model |
-| Internet | pip installs, one-time ONNX model download (~130 MB), Claude API calls |
+| Anthropic API key | Only for the **Claude** answer engine (optional — `none`/`qwen` need no key) |
+| C/C++ toolchain | Only for the **Qwen** engine (to build `llama-cpp-python`) — e.g. `build-essential` on Debian/Ubuntu |
+| Internet | pip installs, one-time ONNX model download (~130 MB); Claude API calls / one-time ~1 GB Qwen GGUF download only if those engines are used |
 
 > **Note on the Anthropic SDK:** this project targets `anthropic` **1.11.0**, whose
 > `messages.create()` does **not** accept a `temperature` argument. The code therefore
@@ -191,6 +194,11 @@ streamlit run embeddingGUI.py --server.port 8502
 ```
 
 Features:
+- **Answer engine selector (sidebar):** choose **Claude**, **Qwen (local)**, or
+  **None (extractive)** — single-select, one at a time. The choice is written to
+  `config.json` (tracked, non-secret) and the chatbot reads it **once per session**,
+  transparently (chat users don't see or choose the engine). See **Answer engine**
+  below.
 - Shows the number of embedded documents and total chunks, and lists each document.
 - **Upload a PDF or PPTX** → saved to `pdf/` or `pptx/` → embedded **incrementally**
   (no collection reset) → shows a pages/tables/images summary.
@@ -199,6 +207,56 @@ Features:
 
 > Re-embedding a PDF with the **same filename** appends duplicate chunks (there is no
 > delete-before-readd). Delete it first for a clean re-embed. The GUI warns you.
+
+---
+
+## Answer engine (pluggable LLM provider)
+
+The chatbot's answer backend is **single-select** and chosen in the Embedding Manager
+GUI sidebar. Exactly one is active at a time, stored in `config.json` (tracked,
+non-secret). The chatbot reads it **once per session** and uses it transparently.
+
+| Provider | What it does | Requirements | Notes |
+|---|---|---|---|
+| **Claude** | Streamed synthesized answer with inline citations (best quality) | `ANTHROPIC_API_KEY` in `.env` | Fast; reliable `[file p.N]` citations |
+| **Qwen (local)** | Same synthesis, run **offline** by a small local model | `llama-cpp-python` + the Qwen GGUF file (~1 GB) | **Slow on CPU (~1–2 min/answer)**; may omit inline citations; shows a warning banner |
+| **None (extractive)** | No generation — shows the retrieved passages verbatim under `[file p.N]` headers | nothing (uses only the embedding model) | Instant; no API, no model |
+
+**Auto-fallback:** if the selected provider isn't actually available at runtime
+(missing API key, or missing GGUF file), the chatbot silently falls back to
+**extractive** so it never breaks. Figures/tables and source downloads work in **all
+three** modes (Qwen may omit inline citation markers, but its source download buttons
+still appear).
+
+> `config.json` is **tracked** (it's non-secret config); `.env` holds only the secret
+> `ANTHROPIC_API_KEY`. A fresh clone defaults to `none` (extractive) and runs with no
+> key and no model download.
+
+### Setting up the local Qwen model (only for the "Qwen" option)
+
+Download a Qwen2.5-1.5B-Instruct **GGUF** (q4_k_m is a good size/quality balance) and
+place it where the app expects it:
+
+```bash
+mkdir -p models
+# ~1 GB download from the official Hugging Face GGUF repo:
+wget -c -O models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
+  "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true"
+```
+
+Default path: `models/qwen2.5-1.5b-instruct-q4_k_m.gguf` (override with
+`QWEN_GGUF_PATH` in `.env`). The `.gguf` file is **not** shipped in the repo (it's
+git-ignored). It runs in-process on CPU via `llama-cpp-python` — no server, no Ollama.
+
+**Performance & quality (be realistic):**
+- **Slow on CPU** — roughly **1–2 minutes per answer**, plus a one-time model load
+  (~a few seconds) on the first question of a session. The chatbot shows a warning
+  banner when the Qwen engine is active so users know to expect the wait. Answers
+  stream in as they generate.
+- **Weaker citations** — the 1.5B model answers correctly and grounded, but may
+  **omit the inline `[file p.N]` markers** that Claude emits reliably. The source
+  **download buttons** still appear (driven by retrieval, not the answer text), so
+  attribution isn't lost. For strict inline citations, use Claude.
 
 ---
 ## Using the chatbot
@@ -262,6 +320,10 @@ curl -s -o /dev/null -w "app:%{http_code}\n" http://localhost:8501/
 | Empty answers / dim mismatch | Store built with a different embedding model | `rm -rf chroma_Name` and rebuild |
 | Garbled table values | PDF table extraction imperfect on complex layouts | Verify against the source via the page number; `lines_strict` strategy reduces this |
 | Content skipped | `SKIP_PAGES` too high | Lower it in `.env` (default `0`) |
+| Chatbot ignores a provider change | Provider is read **once per session** | Refresh the chatbot browser tab to start a new session |
+| Selected Qwen but answers are extractive | GGUF missing or `llama-cpp-python` not installed → auto-fallback | Download the GGUF to `models/` (or set `QWEN_GGUF_PATH`); `pip install -r requirements.txt` |
+| Qwen answers very slow | 1.5B model on CPU | Expected (~1–2 min/answer); use Claude for speed, or run on a GPU build of `llama-cpp-python` |
+| Qwen answers lack `[file p.N]` citations | Small-model limitation | Expected; source **download buttons** still appear. Use Claude for strict inline citations |
 
 ---
 
