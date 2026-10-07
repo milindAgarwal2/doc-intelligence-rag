@@ -24,10 +24,12 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
 # Retrieval / embedding engine (PRESERVED — unchanged behaviour)
 # ---------------------------------------------------------------------------
 def getdirname(filepath):
-    imageDir = os.path.basename(filepath)
-    imageDir = imageDir.replace(".pdf", "")
-    imageDir = imageDir.replace(" ", "")
-    return imageDir
+    # Strip directory + extension so the asset folder name matches ingestion
+    # (foo.pdf and foo.pptx both -> "foo"), keeping assets resolvable per format.
+    base = os.path.basename(filepath)
+    base = os.path.splitext(base)[0]
+    base = base.replace(" ", "")
+    return base
 
 
 def retrieve_docs(user_question):

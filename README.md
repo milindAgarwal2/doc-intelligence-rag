@@ -1,8 +1,9 @@
 # 📚 Technical-Document RAG Chatbot (with Tables & Images)
 
-Query technical PDFs with an LLM — and get back not just text, but the **images**
-and **tables** from the source pages too, with **source attribution** (document
-name + page number) for explainable (XAI) results.
+Query technical **PDFs and PowerPoint decks** with an LLM — and get back not just
+text, but the **images** and **tables** from the source pages/slides too, with
+**source attribution** (document name + page/slide number) for explainable (XAI)
+results.
 
 ## The problem this solves
 
@@ -19,10 +20,12 @@ query time (reconstructing those assets from metadata and rendering them inline)
 
 ## How it works (two parts)
 
-- **Part 1 — Ingestion (`embeddingEngine.py`):** for each PDF page, extract text,
-  tables, and images. Embed the text (and now the table content too) into a Chroma
-  vector store with metadata; save tables and images to disk keyed by document and
-  page number.
+- **Part 1 — Ingestion (`embeddingEngine.py`):** for each **PDF page or PPTX slide**,
+  extract text, tables, and images. Embed the text (and the table content too) into a
+  Chroma vector store with metadata; save tables and images to disk keyed by document
+  and page/slide number. A small dispatcher (`ingest_file`) routes `.pdf` and
+  `.pptx`/`.ppt` to the right extractor; **slides map to page numbers**, so everything
+  downstream treats a deck exactly like a PDF.
 - **Part 2 — Chatbot (`chatBOT_engine.py`):** a Streamlit chat app (`st.chat_input` /
   `st.chat_message`). It runs MMR vector search over the text, then **streams a single
   synthesized answer** from Claude that is grounded in the retrieved context and
@@ -40,6 +43,7 @@ query time (reconstructing those assets from metadata and rendering them inline)
   `lambda_mult=0.6`) for better recall and less near-duplicate noise
 - **Vector store:** Chroma — collection `Project_NAME`, persisted at `./chroma_Name`
 - **PDF processing:** `pymupdf4llm` (text), `pymupdf`/`fitz` (tables), `Spire.PDF` (images)
+- **PPTX processing:** `python-pptx` (slide text, native tables, inserted pictures)
 - **UI:** Streamlit chat primitives (`st.chat_input` / `st.chat_message`)
 - **Chat-to-PDF export:** `xhtml2pdf`
 
@@ -47,13 +51,14 @@ query time (reconstructing those assets from metadata and rendering them inline)
 
 ## Core strategy: "page-as-anchor" sidecar storage
 
-The join key between embedded text and non-text assets is **`file_name` + `pagenumber`**.
+The join key between embedded text and non-text assets is **`file_name` + `pagenumber`**
+(for PPTX, the **slide index is the `pagenumber`**).
 
-| Asset  | Extracted with            | Stored as                               |
-|--------|---------------------------|-----------------------------------------|
-| Text   | `pymupdf4llm` (markdown)  | embedding in Chroma                     |
-| Tables | `pymupdf` `find_tables`   | pickled DataFrame `table/<doc>/<page>/tableN.pkl` |
-| Images | `Spire.PDF` ImageHelper   | PNG `pdf/<doc>/<page>/imageN.png`       |
+| Asset  | Extracted with (PDF / PPTX)              | Stored as                               |
+|--------|------------------------------------------|-----------------------------------------|
+| Text   | `pymupdf4llm` / `python-pptx` text frames | embedding in Chroma                     |
+| Tables | `pymupdf` `find_tables` / `python-pptx` table shapes | pickled DataFrame `table/<doc>/<page>/tableN.pkl` |
+| Images | `Spire.PDF` ImageHelper / `python-pptx` picture shapes | PNG `pdf/<doc>/<page>/imageN.png`       |
 
 Every text chunk is embedded with metadata:
 
@@ -76,7 +81,7 @@ query matching the table's *content* (not just nearby prose) retrieves that page
 
 | File | Purpose |
 |---|---|
-| `embeddingEngine.py` | Ingestion: extract text/tables/images + embed. Reusable functions `get_vectorstore`, `ingest_pdf`, `list_embedded_documents`, `delete_document`. |
+| `embeddingEngine.py` | Ingestion: extract text/tables/images + embed. Reusable functions `get_vectorstore`, `ingest_pdf`, `ingest_pptx`, `ingest_file` (dispatcher), `list_embedded_documents`, `delete_document`. |
 | `chatBOT_engine.py` | Streamlit chatbot (retrieval + Claude + rendering + chat-to-PDF). |
 | `embeddingGUI.py` | Streamlit GUI to view / upload / delete embedded documents. |
 | `htmlTemplates.py` | CSS + chat message HTML templates. |
@@ -129,20 +134,28 @@ are skipped gracefully — no broken image icons.
 
 ## Building the vector store
 
-Put PDFs in `pdf/`, then run the batch ingester (this **resets** the collection for a
-clean full rebuild):
+Put PDFs in `pdf/` and PowerPoint decks in `pptx/`, then run the batch ingester
+(this **resets** the collection for a clean full rebuild):
 
 ```bash
-mkdir -p pdf && cp /path/to/*.pdf pdf/
+mkdir -p pdf pptx
+cp /path/to/*.pdf  pdf/
+cp /path/to/*.pptx pptx/
 python embeddingEngine.py
 ```
 
 This creates `chroma_Name/`, extracts tables to `table/<doc>/<page>/` and images to
-`pdf/<doc>/<page>/`, embeds page text, and embeds each table's content as a searchable
-chunk. First run downloads the `bge-small-en-v1.5` ONNX model.
+`pdf/<doc>/<page>/` (slides use the **slide index** as the page), embeds page/slide
+text, and embeds each table's content as a searchable chunk. First run downloads the
+`bge-small-en-v1.5` ONNX model.
 
 For **incremental** add/remove without a full rebuild, use the Embedding Manager GUI
-(below) or the `ingest_pdf` / `delete_document` functions.
+(below) or the `ingest_file` / `delete_document` functions.
+
+> **PPTX note:** `python-pptx` extracts **native PowerPoint tables** and **inserted
+> raster pictures**. Charts, SmartArt, and grouped/vector graphics are not raster
+> images and are **not** extracted — reference them in text, or paste them as a
+> picture if you need them rendered.
 
 ---
 
@@ -179,10 +192,10 @@ streamlit run embeddingGUI.py --server.port 8502
 
 Features:
 - Shows the number of embedded documents and total chunks, and lists each document.
-- **Upload a PDF** → saved to `pdf/` → embedded **incrementally** (no collection reset)
-  → shows a pages/tables/images summary.
+- **Upload a PDF or PPTX** → saved to `pdf/` or `pptx/` → embedded **incrementally**
+  (no collection reset) → shows a pages/tables/images summary.
 - **Delete a document** → removes its Chroma chunks, its `table/<doc>/` and `pdf/<doc>/`
-  assets, and the source PDF. Requires a confirmation checkbox (destructive).
+  assets, and the source file. Requires a confirmation checkbox (destructive).
 
 > Re-embedding a PDF with the **same filename** appends duplicate chunks (there is no
 > delete-before-readd). Delete it first for a clean re-embed. The GUI warns you.

@@ -31,3 +31,11 @@ screen/
 pdf/**/
 !pdf/
 !pdf/*.pdf
+
+# Source PPTX decks: keep the decks, ignore any extracted subfolders.
+# (PPTX figures/tables are actually written under pdf/<doc>/ and table/<doc>/,
+#  which are already ignored above; this keeps the pptx/ folder tidy too.)
+pptx/**/
+!pptx/
+!pptx/*.pptx
+!pptx/*.ppt

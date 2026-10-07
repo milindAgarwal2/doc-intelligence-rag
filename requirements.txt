@@ -24,6 +24,9 @@ PyMuPDF
 pymupdf4llm
 Spire.PDF
 
+# PPTX processing (native slide text/picture/table extraction)
+python-pptx
+
 # Data handling
 # NOTE: pandas >= 2.1 removed DataFrame.applymap; the code uses DataFrame.map.
 pandas
@@ -48,4 +51,5 @@ attrs
 #   pymupdf==1.28.2          pymupdf4llm==1.28.2     PyPDF2==3.0.1
 #   python-dotenv==1.2.4     requests==2.34.2        spire-pdf==12.9.4
 #   streamlit==1.65.0        xhtml2pdf==0.2.21       reportlab==5.0.1 (via xhtml2pdf)
+#   python-pptx==1.0.2       XlsxWriter==3.2.9 (via python-pptx)
 # ---------------------------------------------------------------------------

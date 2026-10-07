@@ -18,13 +18,20 @@ from dotenv import load_dotenv
 
 from embeddingEngine import (
     get_vectorstore,
-    ingest_pdf,
+    ingest_file,
     list_embedded_documents,
     delete_document,
     getdirname,
 )
 
 PDF_DIR = "pdf"
+PPTX_DIR = "pptx"
+
+
+def _dest_dir_for(filename):
+    """Return the source folder for an uploaded file based on its extension."""
+    ext = os.path.splitext(filename)[1].lower()
+    return PPTX_DIR if ext in (".pptx", ".ppt") else PDF_DIR
 
 
 @st.cache_resource(show_spinner="Loading vector store…")
@@ -71,19 +78,21 @@ def main():
             rows.append({"Document": name, "Stored path": d})
         st.table(rows)
     else:
-        st.info("No documents embedded yet. Upload a PDF below to get started.")
+        st.info("No documents embedded yet. Upload a PDF or PPTX below to get started.")
 
     st.divider()
 
     # ---- Upload a new document ----
     st.subheader("Add a new document")
-    uploaded = st.file_uploader("Upload a PDF to embed", type=["pdf"],
+    uploaded = st.file_uploader("Upload a PDF or PPTX to embed",
+                                type=["pdf", "pptx", "ppt"],
                                 accept_multiple_files=False)
 
     if uploaded is not None:
-        os.makedirs(PDF_DIR, exist_ok=True)
-        dest = os.path.join(PDF_DIR, uploaded.name)
-        already = os.path.join(PDF_DIR, uploaded.name) in docs or dest in docs
+        dest_dir = _dest_dir_for(uploaded.name)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, uploaded.name)
+        already = dest in docs
 
         if already:
             st.warning(
@@ -93,15 +102,15 @@ def main():
             )
 
         if st.button(f"Embed '{uploaded.name}'", type="primary"):
-            # Save the uploaded file to the pdf/ folder.
+            # Save the uploaded file to its source folder (pdf/ or pptx/).
             with open(dest, "wb") as f:
                 f.write(uploaded.getbuffer())
 
             try:
                 with st.spinner(f"Embedding '{uploaded.name}'… this may take a while."):
-                    summary = ingest_pdf(dest, vectorstore, skip_pages=_skip_pages())
+                    summary = ingest_file(dest, vectorstore, skip_pages=_skip_pages())
                 st.success(
-                    f"Embedded '{uploaded.name}': {summary['pages']} pages, "
+                    f"Embedded '{uploaded.name}': {summary['pages']} pages/slides, "
                     f"{summary['tables']} tables, {summary['images']} images extracted."
                 )
                 # Refresh the cached store/list so the new doc appears.
@@ -126,7 +135,7 @@ def main():
         st.warning(
             f"This will permanently remove **{choice}**: its embedded chunks, "
             f"its extracted tables (`table/{getdirname(target_path)}/`), its extracted "
-            f"images (`pdf/{getdirname(target_path)}/`), and the source PDF. "
+            f"images (`pdf/{getdirname(target_path)}/`), and the source file. "
             "This cannot be undone."
         )
         confirm = st.checkbox(f"Yes, delete '{choice}' and all its data")
@@ -141,7 +150,7 @@ def main():
                 if result.get("assets_removed"):
                     msg += f", assets: {', '.join(result['assets_removed'])}"
                 if result.get("source_removed"):
-                    msg += ", source PDF removed"
+                    msg += ", source file removed"
                 st.success(msg)
                 if result.get("error"):
                     st.error(result["error"])

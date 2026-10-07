@@ -22,10 +22,13 @@ def get_pdf_text(pdf_docs):
     return text
 
 def getdirname(filepath):
-    imageDir = os.path.basename(filepath)
-    imageDir = imageDir.replace(".pdf", "")
-    imageDir = imageDir.replace(" ", "")
-    return imageDir
+    # Strip the directory and the file extension so the asset folder name is
+    # stable across formats (foo.pdf and foo.pptx both -> "foo"). The chatbot
+    # computes the same name, so extracted assets resolve regardless of format.
+    base = os.path.basename(filepath)
+    base = os.path.splitext(base)[0]
+    base = base.replace(" ", "")
+    return base
 
 
 def get_text_chunks(text):
@@ -219,6 +222,135 @@ def ingest_pdf(filepath, vectorstore, skip_pages=0):
     return summary
 
 
+def _pptx_slide_text(slide):
+    """Collect all readable text from a slide's shapes (titles, bullets, text
+    boxes). Table text is handled separately (as structured tables), so it is
+    skipped here to avoid duplicating it into the plain-text chunks.
+    """
+    parts = []
+    for shape in slide.shapes:
+        if getattr(shape, "has_table", False):
+            continue
+        if shape.has_text_frame:
+            for para in shape.text_frame.paragraphs:
+                line = "".join(run.text for run in para.runs).strip()
+                if line:
+                    parts.append(line)
+    # Include speaker notes if present — often rich, query-relevant prose.
+    try:
+        if slide.has_notes_slide:
+            notes = slide.notes_slide.notes_text_frame.text.strip()
+            if notes:
+                parts.append("Notes: " + notes)
+    except Exception:
+        pass
+    return "\n".join(parts)
+
+
+def _pptx_table_to_df(table):
+    """Build a DataFrame from a python-pptx table (first row treated as header
+    downstream, same as the PDF path)."""
+    rows = []
+    for row in table.rows:
+        rows.append([cell.text for cell in row.cells])
+    return clean_table_df(pd.DataFrame(rows))
+
+
+def ingest_pptx(filepath, vectorstore, skip_pages=0):
+    """Embed a single PPTX into the vector store and extract its tables/images.
+
+    Mirrors ingest_pdf exactly, mapping SLIDE INDEX -> pagenumber so the chatbot's
+    retrieval, citation, and asset-rendering code works unchanged. Picture shapes
+    are saved to pdf/<doc>/<slide>/imageN.png and table shapes to
+    table/<doc>/<slide>/tableN.pkl, matching the PDF on-disk layout.
+
+    Does NOT reset the collection (safe for incremental add). Returns a dict
+    summary: slides processed, tables, images.
+    """
+    from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    gc.collect()
+    summary = {"pages": 0, "tables": 0, "images": 0}
+
+    prs = Presentation(filepath)
+    imageDir = getdirname(filepath)
+
+    for i, slide in enumerate(prs.slides):
+        if i < skip_pages:
+            continue
+        summary["pages"] += 1
+
+        hasTable = 0
+        hasImage = 0
+
+        # Tables: pickle each + embed its cell values as a searchable chunk.
+        t_idx = 1
+        for shape in slide.shapes:
+            if not getattr(shape, "has_table", False):
+                continue
+            df = _pptx_table_to_df(shape.table)
+            if df is None or df.empty:
+                continue
+            hasTable = 1
+            pathToStoreTable = os.path.join("table", imageDir, str(i))
+            if not os.path.exists(pathToStoreTable):
+                os.makedirs(pathToStoreTable)
+            df.to_pickle(os.path.join(pathToStoreTable, "table" + str(t_idx) + ".pkl"))
+            storetableembedding(table_to_text(df), vectorstore, filepath, i)
+            summary["tables"] += 1
+            t_idx += 1
+
+        # Pictures: save each picture shape's raw image bytes as a PNG.
+        img_idx = 0
+        for shape in slide.shapes:
+            if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
+                continue
+            try:
+                image = shape.image
+                blob = image.blob
+            except Exception:
+                continue
+            hasImage = 1
+            pathToStoreImage = os.path.join("pdf", imageDir, str(i))
+            if not os.path.exists(pathToStoreImage):
+                os.makedirs(pathToStoreImage)
+            # Normalize to PNG so the chatbot's glob("*.png") finds it regardless
+            # of the embedded format (jpeg/emf/etc.).
+            out_png = os.path.join(pathToStoreImage, "image" + str(img_idx) + ".png")
+            try:
+                from PIL import Image as _PILImage
+                import io as _io
+                _PILImage.open(_io.BytesIO(blob)).convert("RGBA").save(out_png, "PNG")
+            except Exception:
+                # Fallback: write raw bytes (works when the blob is already PNG).
+                with open(out_png, "wb") as f:
+                    f.write(blob)
+            summary["images"] += 1
+            img_idx += 1
+
+        # Slide text (titles, bullets, text boxes, notes).
+        text = _pptx_slide_text(slide)
+        text_chunks = get_text_chunks(text) if text.strip() else []
+        storetextembedding(text_chunks, vectorstore, filepath, i, hasImage, hasTable)
+
+    return summary
+
+
+def ingest_file(filepath, vectorstore, skip_pages=0):
+    """Dispatch to the right ingester based on file extension.
+
+    Supports PDF (ingest_pdf) and PPTX/PPT (ingest_pptx). Returns the ingester's
+    summary dict, or raises ValueError for an unsupported extension.
+    """
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext == ".pdf":
+        return ingest_pdf(filepath, vectorstore, skip_pages=skip_pages)
+    if ext in (".pptx", ".ppt"):
+        return ingest_pptx(filepath, vectorstore, skip_pages=skip_pages)
+    raise ValueError(f"Unsupported file type for ingestion: {ext}")
+
+
 def list_embedded_documents(vectorstore):
     """Return a sorted list of distinct file_name values already embedded."""
     try:
@@ -239,7 +371,7 @@ def delete_document(filepath, vectorstore):
       - all Chroma chunks whose metadata file_name == filepath
       - extracted tables under table/<doc>/
       - extracted images under pdf/<doc>/
-      - the source PDF file itself
+      - the source file itself (PDF or PPTX)
 
     Returns a dict summary of what was removed.
     """
@@ -292,10 +424,18 @@ def main():
     # Batch mode resets the collection for a clean full rebuild.
     vectorstore.reset_collection()
 
-    pdf_names = list(glob.glob(os.path.join("pdf", "*.pdf")))
-    for filepath in pdf_names:
+    # Source documents: PDFs in pdf/, PPTX decks in pptx/.
+    source_files = (
+        glob.glob(os.path.join("pdf", "*.pdf"))
+        + glob.glob(os.path.join("pptx", "*.pptx"))
+        + glob.glob(os.path.join("pptx", "*.ppt"))
+    )
+    for filepath in source_files:
         print(filepath)
-        ingest_pdf(filepath, vectorstore, skip_pages=skip_pages)
+        try:
+            ingest_file(filepath, vectorstore, skip_pages=skip_pages)
+        except ValueError as ex:
+            print("  skipped:", ex)
 
 
 if __name__ == '__main__':

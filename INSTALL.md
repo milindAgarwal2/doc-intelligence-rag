@@ -1,11 +1,12 @@
 # 📚 Technical-Document RAG Chatbot
 
-> Query technical PDFs with an LLM — and get back not just text, but the **images**
-> and **tables** from the source pages too.
+> Query technical **PDFs and PowerPoint decks** with an LLM — and get back not just
+> text, but the **images** and **tables** from the source pages/slides too.
 
-A Retrieval-Augmented Generation (RAG) chatbot that ingests technical PDFs,
-preserves their images and tables, and answers questions with **source
-attribution** (document name + page number) for explainable (XAI) results.
+A Retrieval-Augmented Generation (RAG) chatbot that ingests technical **PDFs and
+PPTX decks**, preserves their images and tables, and answers questions with
+**source attribution** (document name + page/slide number) for explainable (XAI)
+results.
 
 - **Embeddings:** local & offline via [`fastembed`](https://github.com/qdrant/fastembed) — model `BAAI/bge-small-en-v1.5` (ONNX, **no PyTorch**)
 - **LLM:** Anthropic Claude (answering + summarization)
@@ -36,8 +37,8 @@ attribution** (document name + page number) for explainable (XAI) results.
 
 ## Features
 
-- 🔎 Semantic search over technical PDFs (**MMR** retrieval: `k=8`, `fetch_k=24`,
-  `lambda_mult=0.6`)
+- 🔎 Semantic search over technical **PDFs and PPTX decks** (**MMR** retrieval:
+  `k=8`, `fetch_k=24`, `lambda_mult=0.6`)
 - 💬 **Chat UI** built on Streamlit chat primitives (`st.chat_input` / `st.chat_message`)
 - 🌊 **Streamed, synthesized answer** — one grounded answer per question, not a
   per-chunk dump
@@ -165,14 +166,18 @@ them):
 ## Preparing Documents
 
 ```bash
-mkdir -p pdf
-cp /path/to/your/*.pdf pdf/
+mkdir -p pdf pptx
+cp /path/to/your/*.pdf  pdf/      # PDFs
+cp /path/to/your/*.pptx pptx/     # PowerPoint decks
 ```
 
-> 📄 By default the extractor **processes every page**. To skip leading
+> 📄 By default the extractor **processes every page/slide**. To skip leading
 > front-matter pages (e.g. cover + table of contents), set `SKIP_PAGES` in your
-> `.env` (or as an env var) to the number of pages to skip — e.g. `SKIP_PAGES=4`
-> reproduces the original behavior of skipping the first 4 pages.
+> `.env` (or as an env var) to the number of pages/slides to skip — e.g.
+> `SKIP_PAGES=4` skips the first 4.
+>
+> 📊 **PPTX:** `python-pptx` extracts native PowerPoint tables and inserted raster
+> pictures. Charts, SmartArt, and vector/grouped graphics are **not** extracted.
 
 ---
 
@@ -253,10 +258,10 @@ streamlit run embeddingGUI.py --server.port 8502
 ```
 
 - Shows the number of embedded documents and total chunks, and lists each document.
-- **Upload a PDF** → saved to `pdf/` → embedded **incrementally** (no collection
-  reset) → shows a pages/tables/images summary.
+- **Upload a PDF or PPTX** → saved to `pdf/` or `pptx/` → embedded **incrementally**
+  (no collection reset) → shows a pages/tables/images summary.
 - **Delete a document** → removes its Chroma chunks, its `table/<doc>/` and
-  `pdf/<doc>/` assets, and the source PDF. Requires a confirmation checkbox.
+  `pdf/<doc>/` assets, and the source file. Requires a confirmation checkbox.
 
 > ⚠️ Re-embedding a PDF with the **same filename** appends duplicate chunks (no
 > delete-before-readd). Delete it first for a clean re-embed; the GUI warns you.
