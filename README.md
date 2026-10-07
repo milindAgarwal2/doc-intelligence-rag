@@ -27,11 +27,13 @@ query time (reconstructing those assets from metadata and rendering them inline)
   `.pptx`/`.ppt` to the right extractor; **slides map to page numbers**, so everything
   downstream treats a deck exactly like a PDF.
 - **Part 2 — Chatbot (`chatBOT_engine.py`):** a Streamlit chat app (`st.chat_input` /
-  `st.chat_message`). It runs MMR vector search over the text, then **streams a single
-  synthesized answer** from Claude that is grounded in the retrieved context and
-  carries **inline `[document p.N]` citations**. Based on sidebar toggles it also
-  reconstructs and renders the images/tables from the **cited** pages, and offers a
-  download button for each cited source document.
+  `st.chat_message`). For a **follow-up**, it first rewrites the question into a
+  standalone query using recent chat history, then runs MMR vector search, then
+  **streams a single synthesized answer** grounded in the retrieved context with
+  **inline `[document p.N]` citations**. Based on sidebar toggles it also
+  reconstructs and renders the images/tables from the **cited** pages, offers a
+  download button for each cited source, and suggests **clickable follow-up
+  questions**.
 
 ## Toolset
 
@@ -267,6 +269,12 @@ git-ignored). It runs in-process on CPU via `llama-cpp-python` — no server, no
 - In the **sidebar**, tick **Include figures from cited pages** / **Include tables
   from cited pages** to render the figures/tables from the pages the answer cited.
 - A **download button** appears under each answer for every source document it cited.
+- **Follow-up questions are understood in context.** Ask "What's the Pico's VBUS
+  current?" then "What about at 85°C?" — the chatbot rewrites the follow-up into a
+  standalone query (resolving "that"/"it"/omitted subjects) using recent history
+  **before** retrieving, so it finds the right page.
+- **Suggested follow-ups** appear as clickable buttons under each answer — click one
+  to ask it next. (Both features use the active LLM; in extractive mode they no-op.)
 - **Clear chat** (sidebar) resets the conversation.
 - **Prepare PDF of chat** (sidebar) builds a downloadable PDF of the whole conversation,
   including the images and tables.

@@ -365,6 +365,148 @@ def render_extractive(docs):
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Lightweight (non-streaming) completions for query rewriting + suggestions.
+# These reuse the active provider; extractive/none has no LLM so they no-op.
+# ---------------------------------------------------------------------------
+def _complete(system_prompt, user_prompt, provider, max_tokens=256):
+    """Return a short completion from the active provider, or "" if unavailable.
+
+    Used for small auxiliary tasks (query rewrite, follow-up suggestions). Not
+    streamed. Returns "" for extractive ("none") or on any error, so callers can
+    simply skip the feature when there's no generative model.
+    """
+    try:
+        if provider == "claude":
+            client = anthropic.Anthropic(timeout=30.0, max_retries=1)
+            resp = client.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return resp.content[0].text.strip()
+        if provider == "qwen":
+            llm = _qwen_llm()
+            out = llm.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=max_tokens,
+                temperature=0.2,
+            )
+            return out["choices"][0]["message"]["content"].strip()
+    except Exception as ex:  # pragma: no cover
+        print(f"[aux-complete] {provider} failed: {type(ex).__name__}: {ex}")
+    return ""
+
+
+def _recent_history_text(messages, max_turns=6):
+    """Format the last few Q/A turns as plain text for the rewriter."""
+    turns = [m for m in messages if m["role"] in ("user", "assistant")]
+    turns = turns[-max_turns:]
+    lines = []
+    for m in turns:
+        who = "User" if m["role"] == "user" else "Assistant"
+        # Trim long assistant answers; the rewriter only needs the gist/subject.
+        content = m["content"]
+        if m["role"] == "assistant" and len(content) > 400:
+            content = content[:400] + "…"
+        lines.append(f"{who}: {content}")
+    return "\n".join(lines)
+
+
+def _needs_rewrite(question, messages):
+    """Cheap heuristic: only rewrite when there's prior context AND the question
+    looks context-dependent (short, or starts with a pronoun/continuation word).
+    Avoids an extra LLM call on clearly self-contained questions.
+    """
+    # No prior turns -> nothing to resolve.
+    if not any(m["role"] == "assistant" for m in messages):
+        return False
+    q = question.strip().lower()
+    words = q.split()
+    # Short questions are usually follow-ups ("what about 85C?", "and uplink?").
+    if len(words) <= 6:
+        return True
+    first = words[0] if words else ""
+    # Continuation openers strongly imply dependence on the prior turn.
+    if first in ("it", "its", "that", "this", "those", "these", "they", "and",
+                 "also", "about"):
+        return True
+    # Otherwise only rewrite a longer question if it contains clear anaphora.
+    if any(w in words for w in ("it", "its", "that", "this", "they", "them", "those", "these")):
+        return True
+    return False
+
+
+def rewrite_query(question, messages, provider):
+    """Rewrite a context-dependent follow-up into a standalone retrieval query
+    using recent chat history. Returns the (possibly unchanged) query to search.
+
+    No-ops (returns the original question) for the first turn, clearly
+    self-contained questions, or extractive mode (no LLM).
+    """
+    if provider == "none":
+        return question
+    if not _needs_rewrite(question, messages):
+        return question
+    history = _recent_history_text(messages)
+    if not history:
+        return question
+    system = (
+        "You rewrite a user's latest message into a single standalone search "
+        "query by resolving pronouns and references using the conversation. "
+        "Output ONLY the rewritten query as one line — no preamble, no quotes. "
+        "If the message is already self-contained, output it unchanged."
+    )
+    user = f"Conversation:\n{history}\n\nLatest message: {question}\n\nStandalone query:"
+    rewritten = _complete(system, user, provider, max_tokens=80)
+    # Take the first non-empty line; _complete may return "" or only whitespace.
+    lines = [ln.strip() for ln in (rewritten or "").splitlines() if ln.strip()]
+    rewritten = lines[0].strip('"').strip() if lines else ""
+    # Guard against junk/empty/overly-long rewrites — fall back to the original.
+    if not rewritten or len(rewritten) > 300:
+        return question
+    return rewritten
+
+
+def suggest_followups(answer_text, docs, provider, n=3):
+    """Return up to ``n`` short follow-up questions grounded in the answer and
+    retrieved context. Empty list for extractive mode or on failure.
+    """
+    if provider == "none" or not answer_text:
+        return []
+    context, _ = _build_context(docs)
+    system = (
+        "Given an assistant answer and the source context, propose up to "
+        f"{n} concise follow-up questions the user might naturally ask next. "
+        "Each must be answerable from the same documents. Output ONE question "
+        "per line, no numbering, no preamble, max ~12 words each."
+    )
+    user = (
+        f"Answer:\n{answer_text[:1500]}\n\n"
+        f"Context (excerpt):\n{context[:1500]}\n\nFollow-up questions:"
+    )
+    out = _complete(system, user, provider, max_tokens=160)
+    if not out:
+        return []
+    qs = []
+    for line in out.splitlines():
+        line = line.strip().lstrip("-*0123456789. ").strip()
+        if len(line) > 3 and line.endswith("?"):
+            qs.append(line)
+    # De-dup and cap.
+    seen = set()
+    uniq = []
+    for q in qs:
+        if q.lower() not in seen:
+            seen.add(q.lower())
+            uniq.append(q)
+    return uniq[:n]
+
+
 def _cited_pages(answer_text, offered_pages):
     """Return the subset of offered (file, page) tuples actually cited in the
     answer text, matched by the [<file> p.<N>] markers the model emitted.
@@ -495,16 +637,25 @@ def chat_history_to_pdf(messages):
 # ---------------------------------------------------------------------------
 # Core answer flow (retrieve → stream synthesized answer → render assets)
 # ---------------------------------------------------------------------------
-def answer_question(user_question, include_image, include_table, provider):
+def answer_question(user_question, include_image, include_table, provider, history=None):
     """Run one Q&A turn and append it to st.session_state.messages.
 
-    ``provider`` is the effective backend ("claude" | "qwen" | "none"). Claude and
-    Qwen stream a synthesized answer; "none" renders retrieved passages verbatim
-    (extractive). Then cited images/tables and source downloads are rendered.
-    Returns the assistant turn dict. The provider is transparent to the chat user.
+    ``provider`` is the effective backend ("claude" | "qwen" | "none"). ``history``
+    is the prior turns, used to rewrite a context-dependent follow-up into a
+    standalone retrieval query. Claude/Qwen stream a synthesized answer; "none"
+    renders retrieved passages verbatim (extractive). Cited images/tables and
+    source downloads are rendered, and (for generative providers) up to 3
+    suggested follow-up questions are produced. The provider is transparent.
     """
+    history = history or []
+
+    # Conversational memory: resolve pronouns/references in a follow-up into a
+    # standalone query BEFORE retrieval, using recent history. Answering still
+    # uses the user's original phrasing. No-op for first turn / extractive.
+    search_query = rewrite_query(user_question, history, provider)
+
     with st.spinner("Searching your documents…"):
-        docs = retrieve_docs(user_question)
+        docs = retrieve_docs(search_query)
 
     if not docs:
         answer_text = "I couldn't find anything relevant in the indexed documents."
@@ -549,11 +700,16 @@ def answer_question(user_question, include_image, include_table, provider):
     if assets_html:
         st.markdown(assets_html, unsafe_allow_html=True)
 
+    # Suggested follow-up questions (generative providers only; grounded in the
+    # answer + retrieved context). Rendered as clickable buttons by the caller.
+    followups = suggest_followups(answer_text, docs, provider) if docs else []
+
     turn = {
         "role": "assistant",
         "content": answer_text,
         "assets_html": assets_html,
         "sources": sources,
+        "followups": followups,
     }
     return turn
 
@@ -572,6 +728,27 @@ def _init_state():
         st.session_state.provider = resolve_provider(requested)
 
 
+def _submit_followup(question):
+    """Sidebar/button callback: queue a suggested follow-up as the next prompt."""
+    st.session_state.pending_prompt = question
+
+
+def _render_followups(followups, idx):
+    """Render suggested follow-up questions as clickable buttons. Clicking one
+    submits it as the next question (via a pending_prompt + rerun)."""
+    if not followups:
+        return
+    st.caption("Suggested follow-ups:")
+    for j, q in enumerate(followups):
+        st.button(
+            q,
+            key=f"fu_{idx}_{j}",
+            on_click=_submit_followup,
+            args=(q,),
+            use_container_width=True,
+        )
+
+
 def _render_turn(turn, idx):
     """Render one chat turn using Streamlit chat primitives."""
     if turn["role"] == "user":
@@ -584,6 +761,8 @@ def _render_turn(turn, idx):
                 st.markdown(turn["assets_html"], unsafe_allow_html=True)
             if turn.get("sources"):
                 _render_source_downloads(turn["sources"], idx)
+            if turn.get("followups"):
+                _render_followups(turn["followups"], idx)
 
 
 def main():
@@ -639,22 +818,28 @@ def main():
     for idx, turn in enumerate(st.session_state.messages):
         _render_turn(turn, idx)
 
-    # Chat input (bottom-docked) — this is the default entry point.
-    prompt = st.chat_input("Ask a question about your documents…")
+    # Chat input (bottom-docked) — the default entry point. A clicked follow-up
+    # suggestion arrives via pending_prompt and is treated like a typed question.
+    typed = st.chat_input("Ask a question about your documents…")
+    prompt = st.session_state.pop("pending_prompt", None) or typed
     if prompt:
-        # Show the user's message immediately.
+        # History BEFORE this turn (for follow-up query rewriting).
+        history = list(st.session_state.messages)
+
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Generate + stream the assistant answer inside its bubble.
+        # Generate + stream the answer live in its bubble. Assets, downloads, and
+        # follow-up buttons are drawn by _render_turn on the immediate rerun
+        # below (single source of truth — avoids duplicate renders / key clashes).
         with st.chat_message("assistant"):
             turn = answer_question(
-                prompt, include_image, include_table, st.session_state.provider
+                prompt, include_image, include_table,
+                st.session_state.provider, history=history,
             )
-            if turn.get("sources"):
-                _render_source_downloads(turn["sources"], len(st.session_state.messages))
         st.session_state.messages.append(turn)
+        st.rerun()
 
 
 if __name__ == "__main__":

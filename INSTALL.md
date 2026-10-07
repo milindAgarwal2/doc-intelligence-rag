@@ -40,6 +40,9 @@ results.
 - 🔎 Semantic search over technical **PDFs and PPTX decks** (**MMR** retrieval:
   `k=8`, `fetch_k=24`, `lambda_mult=0.6`)
 - 💬 **Chat UI** built on Streamlit chat primitives (`st.chat_input` / `st.chat_message`)
+- 🧠 **Conversational memory** — follow-ups like "what about at 85°C?" are rewritten
+  into standalone queries using chat history before retrieval
+- 💡 **Suggested follow-up questions** rendered as clickable buttons after each answer
 - 🌊 **Streamed, synthesized answer** — one grounded answer per question, not a
   per-chunk dump
 - 🧾 **Inline `[document p.N]` citations** for each claim
@@ -310,6 +313,7 @@ streamlit run embeddingGUI.py --server.port 8502
 | 1 | Ask a question about your PDF content | A single **streamed, synthesized** answer appears in a chat bubble |
 | 2 | Read the answer | Each claim carries an inline **`[filename p.N]`** citation |
 | 3 | Ask something not in the docs | The assistant says it doesn't know (grounded, no hallucination) |
+| 3b | Ask a question, then a short follow-up (e.g. "what about at 85°C?") | The follow-up is answered in context; clickable **suggested follow-ups** appear under answers |
 | 4 | Tick **Include figures from cited pages**, ask about a cited page with figures | Image(s) render below the answer |
 | 5 | Tick **Include tables from cited pages**, ask about a cited page with a table | Table renders as HTML below the answer |
 | 6 | Query a value that lives **inside** a table | The table's page is retrieved (content-level search) |
