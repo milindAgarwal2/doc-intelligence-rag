@@ -23,19 +23,24 @@ query time (reconstructing those assets from metadata and rendering them inline)
   tables, and images. Embed the text (and now the table content too) into a Chroma
   vector store with metadata; save tables and images to disk keyed by document and
   page number.
-- **Part 2 — Chatbot (`chatBOT_engine.py`):** a Streamlit app that runs vector search
-  over the text, summarizes hits with Claude, and — based on user toggles —
-  reconstructs and renders the images/tables from the matched pages, with a source
-  link and page markers.
+- **Part 2 — Chatbot (`chatBOT_engine.py`):** a Streamlit chat app (`st.chat_input` /
+  `st.chat_message`). It runs MMR vector search over the text, then **streams a single
+  synthesized answer** from Claude that is grounded in the retrieved context and
+  carries **inline `[document p.N]` citations**. Based on sidebar toggles it also
+  reconstructs and renders the images/tables from the **cited** pages, and offers a
+  download button for each cited source document.
 
 ## Toolset
 
 - **Embeddings:** local & offline via [`fastembed`](https://github.com/qdrant/fastembed),
   model `BAAI/bge-small-en-v1.5` (ONNX, **no PyTorch**)
-- **LLM:** Anthropic Claude (per-chunk summarization + "Ask Claude directly")
+- **LLM:** Anthropic Claude — a single **streamed, synthesized** answer per question,
+  grounded in retrieved context with inline source/page citations
+- **Retrieval:** Chroma with **MMR** (max-marginal-relevance; `k=8`, `fetch_k=24`,
+  `lambda_mult=0.6`) for better recall and less near-duplicate noise
 - **Vector store:** Chroma — collection `Project_NAME`, persisted at `./chroma_Name`
 - **PDF processing:** `pymupdf4llm` (text), `pymupdf`/`fitz` (tables), `Spire.PDF` (images)
-- **UI:** Streamlit (+ HTML/CSS)
+- **UI:** Streamlit chat primitives (`st.chat_input` / `st.chat_message`)
 - **Chat-to-PDF export:** `xhtml2pdf`
 
 ---
@@ -183,26 +188,32 @@ Features:
 > delete-before-readd). Delete it first for a clean re-embed. The GUI warns you.
 
 ---
-
 ## Using the chatbot
 
-- Type a question and press Enter.
-- Tick **Include Image** / **Include Tables** to render page figures/tables in the answer.
-- Click a past question in the **sidebar** to jump straight to that Q&A (no scrolling);
-  **Show all** returns to the full thread.
-- **Ask Claude directly** returns one concise synthesized answer instead of per-chunk
-  summaries.
-- Append `RAW` to a question to get unsummarized source text.
+- Type a question in the chat box at the bottom and press Enter.
+- The answer **streams in** as a single synthesized response, grounded in your
+  documents, with inline **`[document p.N]` citations** for each claim.
+- In the **sidebar**, tick **Include figures from cited pages** / **Include tables
+  from cited pages** to render the figures/tables from the pages the answer cited.
+- A **download button** appears under each answer for every source document it cited.
+- **Clear chat** (sidebar) resets the conversation.
 - **Prepare PDF of chat** (sidebar) builds a downloadable PDF of the whole conversation,
   including the images and tables.
 
 ### Behaviour notes
 
-- Images and tables are **de-duplicated per page**: if several retrieved chunks come
-  from the same page, each image/table renders only once.
+- The answer is **grounded**: if the retrieved context doesn't contain the answer,
+  the assistant says it doesn't know rather than inventing facts.
+- **Citations drive attribution.** Rendered figures/tables and the source download
+  buttons are scoped to the pages the answer actually **cited**, so a chunk that
+  retrieval pulled in but the answer didn't use won't show a stray asset or download.
+- Retrieval uses **MMR** (`k=8`, `fetch_k=24`, `lambda_mult=0.6`) to improve recall of
+  the defining chunk and reduce near-duplicate noise.
+- Images and tables are **de-duplicated per page**.
+- Very long answers are capped at `max_tokens=2048`; if an answer is truncated, a
+  clear "_…(response truncated)_" note is appended rather than leaving a broken line.
 - Tables render as styled HTML (header row + bordered cells). Rendering quality depends
-  on extraction quality — some complex tables may extract imperfectly; use the source
-  link + page number to verify against the original.
+  on extraction quality — verify complex tables against the source via the page number.
 
 ---
 
@@ -210,12 +221,13 @@ Features:
 
 | Action | Expected |
 |---|---|
-| Ask about PDF content | Per-chunk Claude summaries with a **From: `<file>`** link and **Page Number** markers |
-| Tick **Include Image**, ask about a page with figures | Page image(s) render inline |
-| Tick **Include Tables**, ask about a page with a table | Table renders as HTML |
+| Ask about PDF content | A single **streamed, synthesized** answer with inline `[file p.N]` citations |
+| Ask something not in the docs | The assistant says it doesn't know (grounded, no hallucination) |
+| Tick **Include figures**, ask about a cited page with figures | Page image(s) render inline below the answer |
+| Tick **Include tables**, ask about a cited page with a table | Table renders as HTML below the answer |
 | Query a value that lives inside a table | The table's page is retrieved (content-level search) |
-| **Ask Claude directly** | Concise synthesized answer |
-| Append `RAW` | Raw (unsummarized) chunk text |
+| Check under an answer | A **⬇️ Download source** button per cited document |
+| Click **Prepare PDF of chat** | Downloadable PDF transcript incl. images/tables |
 
 Service health:
 
@@ -229,13 +241,13 @@ curl -s -o /dev/null -w "app:%{http_code}\n" http://localhost:8501/
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Images not rendering | Image never extracted for that page, or asset deleted | Confirm `pdf/<doc>/<page>/*.png` exists; re-embed the PDF if missing |
+| Images not rendering | No image extracted for the cited page, or figures toggle off | Confirm `pdf/<doc>/<page>/*.png` exists; tick **Include figures**; re-embed if missing |
+| Answer stops mid-sentence | Hit the token cap on a very long answer | A truncation note is appended; ask a more specific question |
 | `ANTHROPIC_API_KEY` error | `.env` missing or key unset | Add the key to `.env` |
-| `temperature` TypeError | `temperature` re-added to a Claude call | Remove it — SDK 1.11.0 doesn't support it |
-| `get_relevant_documents` AttributeError | Old LangChain API | Use `retriever.invoke(...)` (already applied) |
+| Anthropic 404 / model not found | `ANTHROPIC_MODEL` unavailable to your account | Set a valid Claude model id in `.env` |
 | `applymap` AttributeError | Newer pandas | Use `DataFrame.map` (already applied) |
 | Empty answers / dim mismatch | Store built with a different embedding model | `rm -rf chroma_Name` and rebuild |
-| Garbled table values | PDF table extraction imperfect on complex layouts | Verify against the source via the page link; `lines_strict` strategy is used to reduce this |
+| Garbled table values | PDF table extraction imperfect on complex layouts | Verify against the source via the page number; `lines_strict` strategy reduces this |
 | Content skipped | `SKIP_PAGES` too high | Lower it in `.env` (default `0`) |
 
 ---

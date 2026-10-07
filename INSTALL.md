@@ -36,16 +36,20 @@ attribution** (document name + page number) for explainable (XAI) results.
 
 ## Features
 
-- 🔎 Semantic search over technical PDFs
-- 🖼️ Returns **images** from the relevant source page (toggle: *Include Image*)
-- 📊 Returns **tables** from the relevant source page (toggle: *Include Tables*)
-- 🧾 Source attribution: clickable document link + page number per answer
-- 🧠 "Ask Claude directly" mode for a concise, synthesized answer
-- 📄 `RAW` keyword returns unsummarized source text
+- 🔎 Semantic search over technical PDFs (**MMR** retrieval: `k=8`, `fetch_k=24`,
+  `lambda_mult=0.6`)
+- 💬 **Chat UI** built on Streamlit chat primitives (`st.chat_input` / `st.chat_message`)
+- 🌊 **Streamed, synthesized answer** — one grounded answer per question, not a
+  per-chunk dump
+- 🧾 **Inline `[document p.N]` citations** for each claim
+- 🖼️ Returns **images** from cited pages (sidebar toggle: *Include figures from cited pages*)
+- 📊 Returns **tables** from cited pages (sidebar toggle: *Include tables from cited pages*)
+- ⬇️ **Download button** for each cited source document
+- 🚧 **Grounded**: says "I don't know" when the answer isn't in the documents
 - 🔢 **Table content is semantically searchable** — each table's cell values are
   embedded as their own chunk, so queries matching values inside a table retrieve it
-- 🧭 **Sidebar question index** — click any past question to jump to that Q&A
 - 🧹 **Per-page de-duplication** — the same image/table renders only once per answer
+- 🧹 **Clear chat** and 📄 **chat-to-PDF export** in the sidebar
 - 🗂️ **Embedding Manager GUI** (`embeddingGUI.py`) — view / upload / delete documents
 - 💾 **Chat-to-PDF export** — download the whole conversation (incl. images/tables)
 - 💡 Lightweight footprint — local embeddings run on CPU without PyTorch
@@ -229,11 +233,12 @@ Then open **http://localhost:8501** in your browser.
 
 ### Using the chatbot
 
-- Tick **Include Image** / **Include Tables** to render page figures/tables inline.
-- Click a past question in the **sidebar** to jump to that Q&A; **Show all** returns
-  to the full thread.
-- **Ask Claude directly** returns one concise synthesized answer.
-- Append `RAW` to a question for unsummarized source text.
+- Type a question in the chat box and press Enter; the answer **streams in** as a
+  single synthesized response with inline **`[document p.N]` citations**.
+- Tick **Include figures from cited pages** / **Include tables from cited pages** in
+  the sidebar to render the figures/tables from the pages the answer cited.
+- A **download button** appears under each answer for every cited source document.
+- **Clear chat** (sidebar) resets the conversation.
 - **Prepare PDF of chat** (sidebar) builds a downloadable PDF of the conversation,
   including images and tables.
 
@@ -262,15 +267,15 @@ streamlit run embeddingGUI.py --server.port 8502
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | Ask a question about your PDF content | Bot response with per-chunk Claude summaries |
-| 2 | Check the response header | Shows a **From: `<filename>`** link and **Page Number** markers |
-| 3 | Tick **Include Image**, ask about a page with figures | Relevant page image(s) render inline |
-| 4 | Tick **Include Tables**, ask about a page with a table | Table renders as HTML |
-| 5 | Click **Ask Claude directly** | Concise 3-sentence synthesized answer |
-| 6 | Append `RAW` to your question | Raw (unsummarized) chunk text returned |
-| 7 | Query a value that lives **inside** a table | The table's page is retrieved (content-level search) |
-| 8 | Click a question in the **sidebar** | Main window shows only that Q&A; **Show all** restores the thread |
-| 9 | Click **Prepare PDF of chat**, then download | A PDF with the conversation (incl. images/tables) |
+| 1 | Ask a question about your PDF content | A single **streamed, synthesized** answer appears in a chat bubble |
+| 2 | Read the answer | Each claim carries an inline **`[filename p.N]`** citation |
+| 3 | Ask something not in the docs | The assistant says it doesn't know (grounded, no hallucination) |
+| 4 | Tick **Include figures from cited pages**, ask about a cited page with figures | Image(s) render below the answer |
+| 5 | Tick **Include tables from cited pages**, ask about a cited page with a table | Table renders as HTML below the answer |
+| 6 | Query a value that lives **inside** a table | The table's page is retrieved (content-level search) |
+| 7 | Check under an answer | A **⬇️ Download source** button per cited document |
+| 8 | Ask a very long question | Full answer streams; if capped, a "_…(response truncated)_" note is appended |
+| 9 | Click **Clear chat** / **Prepare PDF of chat** | Conversation resets / a PDF transcript (incl. images/tables) downloads |
 | 10 | `streamlit run embeddingGUI.py --server.port 8502` | Shows document count/list; upload & delete work |
 
 Service health checks:
