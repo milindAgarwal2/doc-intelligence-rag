@@ -267,6 +267,13 @@ def main():
     load_dotenv()
     st.set_page_config(page_title="Document Assistant Admin",
                        page_icon="📚", layout="wide")
+    # Hide Streamlit's top-right toolbar (Deploy button + dev menu).
+    st.markdown(
+        "<style>[data-testid='stToolbar']{display:none!important;}"
+        "[data-testid='stDeployButton']{display:none!important;}"
+        "#MainMenu{visibility:hidden;}</style>",
+        unsafe_allow_html=True,
+    )
     st.title("📚 Document Assistant — Admin Console")
     st.caption(
         "Manage documents and configure the answer engine, chat widget, and "

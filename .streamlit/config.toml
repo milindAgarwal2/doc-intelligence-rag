@@ -1,0 +1,10 @@
+# Streamlit configuration shared by both apps (chatbot + Embedding Admin).
+# Applies to any `streamlit run` from this project directory.
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# Hide the top-right toolbar's Deploy button and dev menu for a clean,
+# app-like UI. "viewer" removes the hamburger menu + Deploy entirely.
+toolbarMode = "viewer"

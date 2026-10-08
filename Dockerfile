@@ -36,6 +36,7 @@ COPY *.py ./
 COPY tests ./tests
 COPY widget ./widget
 COPY demo-site ./demo-site
+COPY .streamlit ./.streamlit
 
 # Pre-create the mount points so first run is clean even before volumes exist.
 RUN mkdir -p pdf pptx table chroma_Name models logs

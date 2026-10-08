@@ -969,6 +969,14 @@ def _render_turn(turn, idx):
 def main():
     load_dotenv()
     st.set_page_config(page_title="Document Chat", page_icon="📚", layout="wide")
+    # Hide Streamlit's top-right toolbar (Deploy button + dev menu) for a clean,
+    # app-like UI. Backs up the .streamlit/config.toml toolbarMode setting.
+    st.markdown(
+        "<style>[data-testid='stToolbar']{display:none!important;}"
+        "[data-testid='stDeployButton']{display:none!important;}"
+        "#MainMenu{visibility:hidden;}</style>",
+        unsafe_allow_html=True,
+    )
     _init_state()
 
     st.title("📚 Technical Document Assistant")
