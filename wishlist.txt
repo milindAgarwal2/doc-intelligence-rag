@@ -14,8 +14,9 @@ PROGRESS (as of session 2026-10-07):
   [DONE] #4 Evaluation harness (tests/eval: recall@k + calibration)
   [DONE] #5 Docker (Dockerfile + docker-compose: chatbot :8501 + GUI :8502)
   [DONE] #6 Observability — structured logging (logging_config.py; print()->logging;
-             per-query structured log line; LOG_LEVEL/LOG_FILE env). NOTE: this is
-             the LIGHTWEIGHT half; full tracing/dashboard split out as #9 (deferred).
+             per-query structured log line; log_level/log_file in config.json,
+             GUI-editable; env LOG_LEVEL/LOG_FILE as optional override). NOTE: this
+             is the LIGHTWEIGHT half; full tracing/dashboard split out as #9.
   [TODO] #2 Authentication, #7 SDK/temperature, #8 UX
   [DEFERRED] #9 Full tracing + admin dashboard (see below)
 

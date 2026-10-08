@@ -129,15 +129,16 @@ ANTHROPIC_API_KEY=sk-ant-...your-key...
 # Optional:
 # ANTHROPIC_MODEL=<model-id>
 # SKIP_PAGES=0        # leading pages to skip per PDF (cover/TOC); default 0
-# LOG_LEVEL=INFO      # DEBUG/INFO/WARNING/ERROR; default INFO
-# LOG_FILE=app.log    # if set, also write logs to this file (else console only)
 ```
 
-The app logs through Python's `logging` (one structured line per answered
-question: provider, retrieval breadth, best relevance score, low-confidence/
-refusal flags, source count, latency). Tune verbosity with `LOG_LEVEL`; add
-`LOG_FILE` to persist logs (handy with a mounted volume in Docker). Logs go to
-stderr, so `docker compose logs -f chatbot` shows them.
+Logging verbosity and an optional log file are **non-secret settings**, so they
+live in **`config.json`** (`log_level`, `log_file`) alongside the answer-engine and
+confidence-threshold settings — set them from the Embedding Manager GUI sidebar
+(**Logging** section) or by editing `config.json`. The app logs one structured line
+per answered question (provider, retrieval breadth, best relevance score,
+low-confidence/refusal flags, source count, latency). Logs go to stderr, so
+`docker compose logs -f chatbot` shows them; set `log_file` to also persist them.
+(For one-off ops/Docker tweaks, env `LOG_LEVEL`/`LOG_FILE` override the config.)
 
 Optional branding assets in the project root (inlined into the page as base64 at
 load time, if present): `AI.png`, `users.png`, `ericssonlogo.png`. Missing assets

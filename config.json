@@ -1,4 +1,6 @@
 {
   "llm_provider": "none",
-  "low_confidence_threshold": 0.63
+  "low_confidence_threshold": 0.63,
+  "log_level": "INFO",
+  "log_file": ""
 }

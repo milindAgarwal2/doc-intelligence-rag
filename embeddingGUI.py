@@ -24,7 +24,7 @@ from embeddingEngine import (
     delete_document,
     getdirname,
 )
-from config import load_config, save_config, VALID_PROVIDERS
+from config import load_config, save_config, VALID_PROVIDERS, VALID_LOG_LEVELS
 from logging_config import setup_logging
 
 setup_logging()
@@ -122,6 +122,35 @@ def main():
                 st.success("Low-confidence banner disabled.")
             else:
                 st.success(f"Low-confidence threshold set to {new_thr:.2f}.")
+        st.divider()
+
+        # ---- Logging (wishlist #6) ----
+        # Non-secret, tunable -> lives in config.json like the other knobs.
+        st.subheader("Logging")
+        _levels = list(VALID_LOG_LEVELS)
+        current_level = cfg.get("log_level", "INFO")
+        new_level = st.selectbox(
+            "Log level",
+            _levels,
+            index=_levels.index(current_level) if current_level in _levels else _levels.index("INFO"),
+            help=(
+                "Verbosity of application logs (written to stderr). Stored in "
+                "config.json. Takes effect on the next app start / rerun. "
+                "An env var LOG_LEVEL, if set, overrides this."
+            ),
+        )
+        current_file = cfg.get("log_file", "")
+        new_file = st.text_input(
+            "Log file (optional)",
+            value=current_file,
+            placeholder="e.g. app.log — leave blank for console only",
+            help="If set, logs are ALSO appended to this file. Blank = stderr only.",
+        )
+        if new_level != current_level or new_file != current_file:
+            save_config({"log_level": new_level, "log_file": new_file})
+            st.success(f"Logging set to {new_level}"
+                       + (f", file '{new_file}'" if new_file else " (console only)")
+                       + ".")
         st.divider()
 
     vectorstore = _load_vectorstore()

@@ -3,7 +3,8 @@
 Config lives in ``config.json`` next to this module so BOTH the upload GUI
 (embeddingGUI.py) and the chatbot (chatBOT_engine.py) read a single source of
 truth. Secrets (e.g. ANTHROPIC_API_KEY) stay in ``.env`` — this file is only for
-non-secret settings such as which LLM provider to use.
+non-secret settings such as which LLM provider to use, the low-confidence
+threshold, and logging (level + optional file).
 
 The upload GUI writes the config; the chatbot reads it once per session.
 """
@@ -31,9 +32,17 @@ VALID_PROVIDERS = ("claude", "qwen", "none")
 LOW_CONFIDENCE_MIN = 0.0
 LOW_CONFIDENCE_MAX = 1.0
 
+# Logging (wishlist #6). Non-secret, tunable settings -> they live in config.json
+# like every other knob, NOT in env. (Env vars LOG_LEVEL / LOG_FILE are still
+# honored as an optional ops/Docker OVERRIDE, but config.json is the source of
+# truth and the documented place to change them.)
+VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
 DEFAULTS = {
     "llm_provider": "none",
     "low_confidence_threshold": 0.63,
+    "log_level": "INFO",
+    "log_file": "",            # "" -> console/stderr only; a path -> also append there
 }
 
 
@@ -52,6 +61,15 @@ def _clamp_threshold(value, fallback=0.63):
     if v > LOW_CONFIDENCE_MAX:
         return LOW_CONFIDENCE_MAX
     return v
+
+
+def _normalize_log_level(value, fallback="INFO"):
+    """Coerce ``value`` to a valid log-level name (uppercased). Bad values fall
+    back so a hand-edited config.json can't break logging setup."""
+    if not isinstance(value, str):
+        return fallback
+    v = value.strip().upper()
+    return v if v in VALID_LOG_LEVELS else fallback
 
 
 def load_config():
@@ -73,6 +91,12 @@ def load_config():
     cfg["low_confidence_threshold"] = _clamp_threshold(
         cfg.get("low_confidence_threshold"), DEFAULTS["low_confidence_threshold"]
     )
+    # Normalize logging settings.
+    cfg["log_level"] = _normalize_log_level(
+        cfg.get("log_level"), DEFAULTS["log_level"]
+    )
+    if not isinstance(cfg.get("log_file"), str):
+        cfg["log_file"] = DEFAULTS["log_file"]
     return cfg
 
 
@@ -89,6 +113,11 @@ def save_config(updates):
     cfg["low_confidence_threshold"] = _clamp_threshold(
         cfg.get("low_confidence_threshold"), DEFAULTS["low_confidence_threshold"]
     )
+    cfg["log_level"] = _normalize_log_level(
+        cfg.get("log_level"), DEFAULTS["log_level"]
+    )
+    if not isinstance(cfg.get("log_file"), str):
+        cfg["log_file"] = DEFAULTS["log_file"]
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
@@ -103,3 +132,21 @@ def get_llm_provider():
 def get_low_confidence_threshold():
     """Convenience: return the configured low-confidence threshold (float)."""
     return load_config()["low_confidence_threshold"]
+
+
+def get_log_level():
+    """Return the effective log level name. Env LOG_LEVEL overrides config
+    (useful for one-off ops/Docker tweaks); otherwise config.json wins."""
+    env = os.getenv("LOG_LEVEL")
+    if env:
+        return _normalize_log_level(env, load_config()["log_level"])
+    return load_config()["log_level"]
+
+
+def get_log_file():
+    """Return the log-file path ("" = console only). Env LOG_FILE overrides
+    config.json if set."""
+    env = os.getenv("LOG_FILE")
+    if env is not None and env != "":
+        return env
+    return load_config()["log_file"]

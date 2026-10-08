@@ -10,8 +10,10 @@ Design
   a later, deeper layer of observability).
 - Console handler by default, so logs still appear in the terminal and in
   ``docker compose logs``.
-- Level is env-configurable via ``LOG_LEVEL`` (default INFO).
-- Optional file output via ``LOG_FILE`` (useful with a mounted volume in Docker).
+- Level + optional file come from ``config.json`` (keys ``log_level`` /
+  ``log_file``) — the same user-editable, non-secret config as every other knob.
+  Env vars ``LOG_LEVEL`` / ``LOG_FILE`` are honored only as an optional ops
+  override (see config.get_log_level / get_log_file).
 - ``setup_logging()`` is idempotent — safe to call on every Streamlit rerun.
 
 Note: the evaluation harness (tests/eval) prints its report to stdout on
@@ -19,8 +21,9 @@ purpose and does NOT use this module — report output is not logging.
 """
 
 import logging
-import os
 import sys
+
+from config import get_log_level, get_log_file
 
 _CONFIGURED = False
 
@@ -31,15 +34,14 @@ _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 def setup_logging(force=False):
     """Configure the root logger once. Idempotent across Streamlit reruns.
 
-    Env vars:
-      LOG_LEVEL  — DEBUG/INFO/WARNING/ERROR/CRITICAL (default INFO)
-      LOG_FILE   — if set, also append logs to this path
+    Level and optional file path are read from config.json (``log_level`` /
+    ``log_file``), with env LOG_LEVEL / LOG_FILE as an optional override.
     """
     global _CONFIGURED
     if _CONFIGURED and not force:
         return logging.getLogger()
 
-    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    level_name = get_log_level()
     level = getattr(logging, level_name, logging.INFO)
 
     root = logging.getLogger()
@@ -57,15 +59,15 @@ def setup_logging(force=False):
     console.setFormatter(formatter)
     root.addHandler(console)
 
-    # Optional file handler.
-    log_file = os.getenv("LOG_FILE")
+    # Optional file handler (config key log_file, "" = disabled).
+    log_file = get_log_file()
     if log_file:
         try:
             fileh = logging.FileHandler(log_file, encoding="utf-8")
             fileh.setFormatter(formatter)
             root.addHandler(fileh)
         except OSError as ex:
-            root.warning("could not open LOG_FILE %s: %s", log_file, ex)
+            root.warning("could not open log_file %s: %s", log_file, ex)
 
     # Quiet down noisy third-party loggers unless explicitly debugging.
     if level > logging.DEBUG:
