@@ -1,0 +1,3 @@
+# This folder is bind-mounted into the containers at /app/logs so application
+# logs written via config.json's log_file (e.g. "logs/app.log") land on the HOST.
+# The log files themselves are git-ignored; this placeholder keeps the dir.

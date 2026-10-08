@@ -148,8 +148,11 @@ confidence-threshold settings — set them from the Embedding Manager GUI sideba
 per answered question (provider, retrieval breadth, best relevance score,
 low-confidence/refusal flags, source count, latency). Logs go to stderr, so
 `docker compose logs -f chatbot` shows them; set `log_file` to also persist them.
-`config.json` is the single source of truth for logging — there are no logging
-env vars.
+To get a log file **on the host** when running in Docker, use a path under the
+mounted `logs/` folder — e.g. set `log_file` to `logs/app.log` and it appears at
+`./logs/app.log` on your machine (the compose file mounts `./logs` into each
+service). `config.json` is the single source of truth for logging — there are no
+logging env vars.
 
 Optional branding assets in the project root (inlined into the page as base64 at
 load time, if present): `AI.png`, `users.png`, `ericssonlogo.png`. Missing assets

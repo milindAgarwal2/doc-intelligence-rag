@@ -142,8 +142,13 @@ def main():
         new_file = st.text_input(
             "Log file (optional)",
             value=current_file,
-            placeholder="e.g. app.log — leave blank for console only",
-            help="If set, logs are ALSO appended to this file. Blank = stderr only.",
+            placeholder="e.g. logs/app.log — leave blank for console only",
+            help=(
+                "If set, logs are ALSO appended to this file (blank = stderr only). "
+                "In Docker, use a path under the mounted logs/ folder (e.g. "
+                "'logs/app.log') so the file appears on the HOST at ./logs/app.log. "
+                "Takes effect on the next app start/restart."
+            ),
         )
         if new_level != current_level or new_file != current_file:
             save_config({"log_level": new_level, "log_file": new_file})

@@ -38,7 +38,7 @@ COPY widget ./widget
 COPY demo-site ./demo-site
 
 # Pre-create the mount points so first run is clean even before volumes exist.
-RUN mkdir -p pdf pptx table chroma_Name models
+RUN mkdir -p pdf pptx table chroma_Name models logs
 
 # Streamlit server defaults for container use: listen on all interfaces, no
 # usage stats, no CORS/XSRF friction behind a proxy.

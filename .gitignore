@@ -18,6 +18,10 @@ table/
 # Saved chat sessions / exports
 chatbot*.json
 
+# Application log files (the logs/ dir is kept via .gitkeep; files are ignored)
+logs/*.log
+*.log
+
 # WSL metadata
 *:Zone.Identifier
 

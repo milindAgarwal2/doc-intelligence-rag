@@ -32,6 +32,7 @@ services:
       - ./table:/app/table              # extracted tables (shared)
       - ./config.json:/app/config.json  # answer engine + threshold (shared)
       - ./models:/app/models            # optional Qwen GGUF (shared, read-only use)
+      - ./logs:/app/logs                # app logs (set log_file=logs/app.log in config)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
       interval: 30s
@@ -60,6 +61,7 @@ services:
       - ./table:/app/table
       - ./config.json:/app/config.json
       - ./models:/app/models
+      - ./logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8502/_stcore/health"]
       interval: 30s
@@ -87,6 +89,7 @@ services:
       - ./table:/app/table
       - ./config.json:/app/config.json
       - ./models:/app/models
+      - ./logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 30s
