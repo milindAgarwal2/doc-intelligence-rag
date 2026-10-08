@@ -77,25 +77,13 @@ def _count_chunks(vectorstore):
         return None
 
 
-def _sidebar_status(docs, chunk_count, provider):
-    """A slim status panel (not a config dump) in the sidebar."""
-    with st.sidebar:
-        st.markdown("### 📊 Status")
-        st.metric("Embedded documents", len(docs))
-        st.metric("Total text chunks", chunk_count if chunk_count is not None else "—")
-        st.markdown("**Answer engine**")
-        st.caption(f"`{provider}`" + (
-            " — extractive (no LLM)" if provider == "none" else ""
-        ))
-        st.divider()
-        st.caption(
-            "Manage documents and settings in the tabs on the right. "
-            "Settings are saved to `config.json` and read by the chatbot/widget."
-        )
+def _tab_documents(vectorstore, docs, chunk_count):
+    """Documents tab: metrics, list, upload, delete."""
+    c1, c2 = st.columns(2)
+    c1.metric("Embedded documents", len(docs))
+    c2.metric("Total text chunks", chunk_count if chunk_count is not None else "—")
+    st.divider()
 
-
-def _tab_documents(vectorstore, docs):
-    """Documents tab: list, upload, delete."""
     st.subheader("Embedded documents")
     if docs:
         rows = [{"Document": os.path.basename(d), "Stored path": d} for d in docs]
@@ -277,21 +265,25 @@ def _tab_logging(cfg):
 
 def main():
     load_dotenv()
-    st.set_page_config(page_title="Embedding Manager", page_icon="📥", layout="wide")
-    st.title("📥 Document Embedding Manager")
+    st.set_page_config(page_title="Document Assistant Admin",
+                       page_icon="📚", layout="wide")
+    st.title("📚 Document Assistant — Admin Console")
+    st.caption(
+        "Manage documents and configure the answer engine, chat widget, and "
+        "logging. Settings are saved to config.json and used by the chatbot and "
+        "the embeddable widget."
+    )
 
     cfg = load_config()
     vectorstore = _load_vectorstore()
     docs = list_embedded_documents(vectorstore)
     chunk_count = _count_chunks(vectorstore)
 
-    _sidebar_status(docs, chunk_count, cfg.get("llm_provider", "none"))
-
     tab_docs, tab_engine, tab_widget, tab_logs = st.tabs(
         ["📚 Documents", "⚙️ Answer engine", "💬 Chat widget", "🔧 Logging"]
     )
     with tab_docs:
-        _tab_documents(vectorstore, docs)
+        _tab_documents(vectorstore, docs, chunk_count)
     with tab_engine:
         _tab_engine(cfg)
     with tab_widget:
