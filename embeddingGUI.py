@@ -41,6 +41,16 @@ _PROVIDER_LABELS = {
 }
 
 
+def _safe_hex(value, fallback="#2e7d32"):
+    """st.color_picker needs a #hex value. If the configured color is a named
+    color or rgb()/hsl(), fall back to a hex default for the picker (the actual
+    config value is still whatever the user set)."""
+    import re
+    if isinstance(value, str) and re.match(r"^#[0-9a-fA-F]{6}$", value.strip()):
+        return value.strip()
+    return fallback
+
+
 def _dest_dir_for(filename):
     """Return the source folder for an uploaded file based on its extension."""
     ext = os.path.splitext(filename)[1].lower()
@@ -177,6 +187,25 @@ def main():
                 if new_welcome.strip()
                 else "Widget welcome message cleared (no greeting will show)."
             )
+
+        # Title, input placeholder, accent color.
+        current_title = cfg.get("widget_title", "📚 Document Assistant")
+        new_title = st.text_input("Widget title", value=current_title)
+        current_ph = cfg.get("widget_input_placeholder", "Ask about the documents…")
+        new_ph = st.text_input("Input box placeholder", value=current_ph)
+        current_color = cfg.get("widget_accent_color", "#2e7d32")
+        new_color = st.color_picker("Accent color", value=_safe_hex(current_color))
+
+        updates = {}
+        if new_title != current_title:
+            updates["widget_title"] = new_title
+        if new_ph != current_ph:
+            updates["widget_input_placeholder"] = new_ph
+        if new_color != current_color:
+            updates["widget_accent_color"] = new_color
+        if updates:
+            save_config(updates)
+            st.success("Widget appearance updated. Reload the widget to see changes.")
         st.divider()
 
     vectorstore = _load_vectorstore()

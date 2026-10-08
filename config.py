@@ -45,6 +45,10 @@ DEFAULTS = {
     # Embeddable widget (#10): the greeting shown when a visitor opens the chat
     # panel. Read fresh each time a new session opens the widget. "" hides it.
     "widget_welcome_message": "Hi! Ask me a question about the indexed documents.",
+    # Widget appearance (all read fresh when the widget loads).
+    "widget_title": "📚 Document Assistant",
+    "widget_input_placeholder": "Ask about the documents…",
+    "widget_accent_color": "#2e7d32",
 }
 
 
@@ -74,6 +78,34 @@ def _normalize_log_level(value, fallback="INFO"):
     return v if v in VALID_LOG_LEVELS else fallback
 
 
+import re as _re
+
+# A permissive but safe CSS color check: #hex (3/4/6/8), rgb()/rgba(), hsl()/hsla(),
+# or a plain CSS named color (letters only). Prevents injecting arbitrary content
+# via the accent color (it is used in a style attribute by the widget).
+_COLOR_RE = _re.compile(
+    r"^(#[0-9a-fA-F]{3,8}"
+    r"|rgba?\([0-9.,%\s]+\)"
+    r"|hsla?\([0-9.,%\s]+\)"
+    r"|[a-zA-Z]+)$"
+)
+
+
+def _normalize_widget_appearance(cfg):
+    """Validate the widget appearance keys in-place: non-empty strings for title
+    and placeholder (else default), and a syntactically valid CSS color for the
+    accent (else default). Keeps a hand-edited config from breaking the widget."""
+    for key in ("widget_title", "widget_input_placeholder"):
+        v = cfg.get(key)
+        if not isinstance(v, str) or not v.strip():
+            cfg[key] = DEFAULTS[key]
+    color = cfg.get("widget_accent_color")
+    if not isinstance(color, str) or not _COLOR_RE.match(color.strip()):
+        cfg["widget_accent_color"] = DEFAULTS["widget_accent_color"]
+    else:
+        cfg["widget_accent_color"] = color.strip()
+
+
 def load_config():
     """Return the config dict, merged over defaults. Never raises: a missing or
     malformed file yields the defaults so the app always runs.
@@ -101,6 +133,7 @@ def load_config():
         cfg["log_file"] = DEFAULTS["log_file"]
     if not isinstance(cfg.get("widget_welcome_message"), str):
         cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
+    _normalize_widget_appearance(cfg)
     return cfg
 
 
@@ -124,6 +157,7 @@ def save_config(updates):
         cfg["log_file"] = DEFAULTS["log_file"]
     if not isinstance(cfg.get("widget_welcome_message"), str):
         cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
+    _normalize_widget_appearance(cfg)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
@@ -153,3 +187,14 @@ def get_log_file():
 def get_widget_welcome_message():
     """Return the widget greeting from config.json ("" = no greeting shown)."""
     return load_config()["widget_welcome_message"]
+
+
+def get_widget_config():
+    """Return all widget appearance/content settings as a dict (for the API)."""
+    cfg = load_config()
+    return {
+        "welcome_message": cfg["widget_welcome_message"],
+        "title": cfg["widget_title"],
+        "input_placeholder": cfg["widget_input_placeholder"],
+        "accent_color": cfg["widget_accent_color"],
+    }

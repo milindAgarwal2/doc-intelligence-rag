@@ -1,5 +1,7 @@
 /* Embeddable chat widget styles. Scoped under #tdrag-widget to avoid clashing
-   with the host page. */
+   with the host page. The accent color is driven by the CSS custom property
+   --tdrag-accent (set by widget.js from config.json's widget_accent_color);
+   the var(--tdrag-accent, #2e7d32) fallbacks apply if JS hasn't set it yet. */
 
 #tdrag-widget * { box-sizing: border-box; }
 
@@ -11,14 +13,14 @@
   height: 56px;
   border-radius: 50%;
   border: none;
-  background: #2e7d32;
+  background: var(--tdrag-accent, #2e7d32);
   color: #fff;
   font-size: 24px;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   z-index: 2147483000;
 }
-#tdrag-launcher:hover { background: #276a2b; }
+#tdrag-launcher:hover { background: var(--tdrag-accent, #276a2b); }
 
 #tdrag-panel {
   position: fixed;
@@ -52,7 +54,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  background: #2e7d32;
+  background: var(--tdrag-accent, #2e7d32);
   color: #fff;
   font-weight: 600;
 }
@@ -82,7 +84,7 @@
   line-height: 1.4;
 }
 .tdrag-user {
-  background: #2e7d32;
+  background: var(--tdrag-accent, #2e7d32);
   color: #fff;
   margin-left: auto;
   border-bottom-right-radius: 2px;
@@ -115,12 +117,12 @@
   border-radius: 4px;
   padding: 1px 6px;
   margin: 2px 4px 0 0;
-  color: #2e7d32;
+  color: var(--tdrag-accent, #2e7d32);
   text-decoration: none;
   cursor: pointer;
 }
 .tdrag-source:hover {
-  background: #2e7d32;
+  background: var(--tdrag-accent, #2e7d32);
   color: #fff;
   text-decoration: underline;
 }
@@ -135,8 +137,8 @@
 .tdrag-followup {
   text-align: left;
   background: #fff;
-  border: 1px solid #2e7d32;
-  color: #2e7d32;
+  border: 1px solid var(--tdrag-accent, #2e7d32);
+  color: var(--tdrag-accent, #2e7d32);
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 12px;
@@ -159,9 +161,9 @@
   font-size: 14px;
   outline: none;
 }
-#tdrag-input:focus { border-color: #2e7d32; }
+#tdrag-input:focus { border-color: var(--tdrag-accent, #2e7d32); }
 #tdrag-send {
-  background: #2e7d32;
+  background: var(--tdrag-accent, #2e7d32);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -169,6 +171,6 @@
   cursor: pointer;
   font-size: 14px;
 }
-#tdrag-send:hover { background: #276a2b; }
+#tdrag-send:hover { background: var(--tdrag-accent, #276a2b); }
 
 .tdrag-dots { color: #999; }

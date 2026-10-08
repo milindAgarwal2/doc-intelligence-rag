@@ -298,6 +298,21 @@ sidebar (**Chat widget** section). The widget fetches it from `GET /api/health` 
 time it opens, so a change takes effect on the **next session with no restart**. Set
 it to an empty string to show **no greeting** at all.
 
+### Configuring the widget appearance
+
+The widget's **title**, input **placeholder**, and **accent color** are also
+configurable in `config.json` (editable from the GUI **Chat widget** section):
+
+| Key | Default | Notes |
+|---|---|---|
+| `widget_title` | `📚 Document Assistant` | Header title |
+| `widget_input_placeholder` | `Ask about the documents…` | Text-box placeholder |
+| `widget_accent_color` | `#2e7d32` | Any valid CSS color; drives the whole theme via a CSS variable |
+
+The widget reads these from `GET /api/health` when it loads, so changes apply on the
+next widget load. The accent color is validated server-side (must be a valid
+`#hex`/`rgb()`/`hsl()`/named color) to prevent injection.
+
 ---
 
 ## Embedding Manager GUI

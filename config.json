@@ -3,5 +3,8 @@
   "low_confidence_threshold": 0.63,
   "log_level": "INFO",
   "log_file": "",
-  "widget_welcome_message": "Hi! Ask me a question about the indexed documents."
+  "widget_welcome_message": "Hi! Ask me a question about the indexed documents.",
+  "widget_title": "📚 Document Assistant",
+  "widget_input_placeholder": "Ask about the documents…",
+  "widget_accent_color": "#2e7d32"
 }

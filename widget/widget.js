@@ -30,6 +30,12 @@
   // Conversation history kept in memory (sent with each request for follow-ups).
   var history = [];
   var busy = false;
+  var cfg = {
+    welcome_message: "Hi! Ask me a question about the indexed documents.",
+    title: "📚 Document Assistant",
+    input_placeholder: "Ask about the documents…",
+    accent_color: "#2e7d32",
+  };
 
   // ---- Inject stylesheet ----
   if (CSS_HREF) {
@@ -39,20 +45,19 @@
     document.head.appendChild(link);
   }
 
-  // ---- Build DOM ----
+  // ---- Build DOM (title/placeholder filled from config after fetch) ----
   var root = document.createElement("div");
   root.id = "tdrag-widget";
   root.innerHTML = [
     '<button id="tdrag-launcher" aria-label="Open chat">💬</button>',
     '<div id="tdrag-panel" role="dialog" aria-label="Document assistant" hidden>',
     '  <div id="tdrag-header">',
-    '    <span>📚 Document Assistant</span>',
+    '    <span id="tdrag-title"></span>',
     '    <button id="tdrag-close" aria-label="Minimize" title="Minimize">—</button>',
     "  </div>",
     '  <div id="tdrag-messages"></div>',
     '  <form id="tdrag-form">',
-    '    <input id="tdrag-input" type="text" autocomplete="off"',
-    '           placeholder="Ask about the documents…" />',
+    '    <input id="tdrag-input" type="text" autocomplete="off" />',
     '    <button id="tdrag-send" type="submit">Send</button>',
     "  </form>",
     "</div>",
@@ -65,6 +70,34 @@
   var messages = root.querySelector("#tdrag-messages");
   var form = root.querySelector("#tdrag-form");
   var input = root.querySelector("#tdrag-input");
+  var titleEl = root.querySelector("#tdrag-title");
+
+  // Apply configurable appearance/content to the DOM. Accent color is set as a
+  // CSS custom property on the widget root; widget.css consumes var(--tdrag-accent).
+  function applyConfig() {
+    titleEl.textContent = cfg.title;
+    input.setAttribute("placeholder", cfg.input_placeholder);
+    root.style.setProperty("--tdrag-accent", cfg.accent_color);
+  }
+  applyConfig(); // apply defaults immediately; refreshed after fetch
+
+  // Fetch config once at load so title/placeholder/color reflect config.json.
+  fetch(API + "/health")
+    .then(function (r) { return r.ok ? r.json() : {}; })
+    .then(function (info) {
+      if (info && typeof info === "object") {
+        if (typeof info.title === "string" && info.title) cfg.title = info.title;
+        if (typeof info.input_placeholder === "string" && info.input_placeholder)
+          cfg.input_placeholder = info.input_placeholder;
+        if (typeof info.accent_color === "string" && info.accent_color)
+          cfg.accent_color = info.accent_color;
+        if (typeof info.welcome_message === "string")
+          cfg.welcome_message = info.welcome_message;
+        applyConfig();
+      }
+    })
+    .catch(function () { /* keep defaults if health unreachable */ });
+
 
   // ---- Helpers ----
   function esc(s) {
@@ -84,20 +117,12 @@
   var greeted = false;
 
   function showGreeting() {
-    // Fetch the configurable welcome message from the API (read fresh from
-    // config.json server-side). Only shown once per widget session, and only
-    // if non-empty (an empty message in config hides the greeting entirely).
+    // Use the welcome message fetched at load (from config.json). Only shown
+    // once per widget session, and only if non-empty ("" hides the greeting).
     if (greeted) return;
     greeted = true;
-    fetch(API + "/health")
-      .then(function (r) { return r.ok ? r.json() : {}; })
-      .then(function (info) {
-        var msg = info && typeof info.welcome_message === "string"
-          ? info.welcome_message.trim()
-          : "";
-        if (msg) addMessage("bot", esc(msg));
-      })
-      .catch(function () { /* no greeting if health is unreachable */ });
+    var msg = (cfg.welcome_message || "").trim();
+    if (msg) addMessage("bot", esc(msg));
   }
 
   function openPanel() {
