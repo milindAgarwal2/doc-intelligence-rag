@@ -22,7 +22,6 @@ from embeddingEngine import (
     ingest_file,
     list_embedded_documents,
     delete_document,
-    getdirname,
 )
 from config import load_config, save_config, VALID_PROVIDERS, VALID_LOG_LEVELS
 from logging_config import setup_logging
@@ -78,244 +77,227 @@ def _count_chunks(vectorstore):
         return None
 
 
-def main():
-    load_dotenv()
-    st.set_page_config(page_title="Embedding Manager", page_icon="📥", layout="wide")
-    st.title("📥 Document Embedding Manager")
-
-    # ---- Answer provider (single-select, writes config.json) ----
-    # This is an admin setting: it controls which backend the CHATBOT uses to
-    # answer. Only one can be active at a time. The chat app reads this once per
-    # session, transparently — chat users don't see or choose the provider.
+def _sidebar_status(docs, chunk_count, provider):
+    """A slim status panel (not a config dump) in the sidebar."""
     with st.sidebar:
-        st.subheader("Answer engine (chatbot)")
-        cfg = load_config()
-        current = cfg.get("llm_provider", "none")
-        options = list(VALID_PROVIDERS)  # ("claude", "qwen", "none")
-        choice = st.radio(
-            "Which model should the chatbot use to answer?",
-            options,
-            index=options.index(current) if current in options else options.index("none"),
-            format_func=lambda p: _PROVIDER_LABELS.get(p, p),
-        )
-        if choice != current:
-            save_config({"llm_provider": choice})
-            st.success(f"Answer engine set to: {choice}. New chat sessions will use it.")
+        st.markdown("### 📊 Status")
+        st.metric("Embedded documents", len(docs))
+        st.metric("Total text chunks", chunk_count if chunk_count is not None else "—")
+        st.markdown("**Answer engine**")
+        st.caption(f"`{provider}`" + (
+            " — extractive (no LLM)" if provider == "none" else ""
+        ))
+        st.divider()
         st.caption(
-            "Only one engine is active at a time. If the selected engine isn't "
-            "available at runtime (missing API key or model file), the chatbot "
-            "automatically falls back to extractive mode."
+            "Manage documents and settings in the tabs on the right. "
+            "Settings are saved to `config.json` and read by the chatbot/widget."
         )
-        st.divider()
 
-        # ---- Low-confidence threshold (wishlist #3) ----
-        # Non-blocking: controls when the chatbot shows a "low confidence" banner
-        # above an answer (top retrieval relevance below this floor). Does NOT
-        # block answers. 0.0 disables the banner.
-        st.subheader("Low-confidence banner")
-        current_thr = float(cfg.get("low_confidence_threshold", 0.30))
-        new_thr = st.slider(
-            "Show a 'low confidence' banner when the best match scores below:",
-            min_value=0.0,
-            max_value=1.0,
-            value=current_thr,
-            step=0.05,
-            help=(
-                "Cosine relevance (0–1, higher = better match). The banner is "
-                "advisory and never blocks an answer. Set to 0.00 to disable it. "
-                "Takes effect on the next chatbot question."
-            ),
-        )
-        if abs(new_thr - current_thr) > 1e-9:
-            save_config({"low_confidence_threshold": new_thr})
-            if new_thr == 0.0:
-                st.success("Low-confidence banner disabled.")
-            else:
-                st.success(f"Low-confidence threshold set to {new_thr:.2f}.")
-        st.divider()
 
-        # ---- Logging (wishlist #6) ----
-        # Non-secret, tunable -> lives in config.json like the other knobs.
-        st.subheader("Logging")
-        _levels = list(VALID_LOG_LEVELS)
-        current_level = cfg.get("log_level", "INFO")
-        new_level = st.selectbox(
-            "Log level",
-            _levels,
-            index=_levels.index(current_level) if current_level in _levels else _levels.index("INFO"),
-            help=(
-                "Verbosity of application logs (written to stderr). Stored in "
-                "config.json. Takes effect on the next app start / rerun."
-            ),
-        )
-        current_file = cfg.get("log_file", "")
-        new_file = st.text_input(
-            "Log file (optional)",
-            value=current_file,
-            placeholder="e.g. logs/app.log — leave blank for console only",
-            help=(
-                "If set, logs are ALSO appended to this file (blank = stderr only). "
-                "In Docker, use a path under the mounted logs/ folder (e.g. "
-                "'logs/app.log') so the file appears on the HOST at ./logs/app.log. "
-                "Takes effect on the next app start/restart."
-            ),
-        )
-        if new_level != current_level or new_file != current_file:
-            save_config({"log_level": new_level, "log_file": new_file})
-            st.success(f"Logging set to {new_level}"
-                       + (f", file '{new_file}'" if new_file else " (console only)")
-                       + ".")
-        st.divider()
-
-        # ---- Embeddable widget (#10) ----
-        st.subheader("Chat widget")
-        current_welcome = cfg.get("widget_welcome_message", "")
-        new_welcome = st.text_area(
-            "Widget welcome message",
-            value=current_welcome,
-            height=80,
-            help=(
-                "Greeting shown when a visitor opens the embeddable chat widget. "
-                "Read fresh from config.json each time the widget opens. Leave "
-                "blank to show no greeting at all."
-            ),
-        )
-        if new_welcome != current_welcome:
-            save_config({"widget_welcome_message": new_welcome})
-            st.success(
-                "Widget welcome message updated."
-                if new_welcome.strip()
-                else "Widget welcome message cleared (no greeting will show)."
-            )
-
-        # Title, input placeholder, accent color.
-        current_title = cfg.get("widget_title", "📚 Document Assistant")
-        new_title = st.text_input("Widget title", value=current_title)
-        current_ph = cfg.get("widget_input_placeholder", "Ask about the documents…")
-        new_ph = st.text_input("Input box placeholder", value=current_ph)
-        current_color = cfg.get("widget_accent_color", "#2e7d32")
-        new_color = st.color_picker("Accent color", value=_safe_hex(current_color))
-
-        updates = {}
-        if new_title != current_title:
-            updates["widget_title"] = new_title
-        if new_ph != current_ph:
-            updates["widget_input_placeholder"] = new_ph
-        if new_color != current_color:
-            updates["widget_accent_color"] = new_color
-        if updates:
-            save_config(updates)
-            st.success("Widget appearance updated. Reload the widget to see changes.")
-        st.divider()
-
-    vectorstore = _load_vectorstore()
-
-    # ---- Status: how many documents are embedded ----
-    docs = list_embedded_documents(vectorstore)
-    chunk_count = _count_chunks(vectorstore)
-
-    col1, col2 = st.columns(2)
-    col1.metric("Embedded documents", len(docs))
-    col2.metric("Total text chunks", chunk_count if chunk_count is not None else "—")
-
+def _tab_documents(vectorstore, docs):
+    """Documents tab: list, upload, delete."""
     st.subheader("Embedded documents")
     if docs:
-        rows = []
-        for d in docs:
-            name = os.path.basename(d)
-            rows.append({"Document": name, "Stored path": d})
-        st.table(rows)
+        rows = [{"Document": os.path.basename(d), "Stored path": d} for d in docs]
+        st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         st.info("No documents embedded yet. Upload a PDF or PPTX below to get started.")
 
     st.divider()
 
-    # ---- Upload a new document ----
-    st.subheader("Add a new document")
-    uploaded = st.file_uploader("Upload a PDF or PPTX to embed",
-                                type=["pdf", "pptx", "ppt"],
-                                accept_multiple_files=False)
+    col_add, col_del = st.columns(2)
 
-    if uploaded is not None:
-        dest_dir = _dest_dir_for(uploaded.name)
-        os.makedirs(dest_dir, exist_ok=True)
-        dest = os.path.join(dest_dir, uploaded.name)
-        already = dest in docs
-
-        if already:
-            st.info(
-                f"'{uploaded.name}' is already embedded. Re-embedding is now a "
-                "safe **upsert**: identical content is skipped, and changed "
-                "content replaces the old chunks (no duplicates)."
-            )
-
-        if st.button(f"Embed '{uploaded.name}'", type="primary"):
-            # Save the uploaded file to its source folder (pdf/ or pptx/).
-            with open(dest, "wb") as f:
-                f.write(uploaded.getbuffer())
-
-            try:
-                with st.spinner(f"Embedding '{uploaded.name}'… this may take a while."):
-                    summary = ingest_file(dest, vectorstore, skip_pages=_skip_pages())
-                logger.info(
-                    "GUI embed '%s' | pages=%s tables=%s images=%s skipped=%s",
-                    uploaded.name, summary.get("pages"), summary.get("tables"),
-                    summary.get("images"), summary.get("skipped"),
+    # ---- Add ----
+    with col_add:
+        st.markdown("#### ➕ Add a document")
+        uploaded = st.file_uploader(
+            "Upload a PDF or PPTX to embed",
+            type=["pdf", "pptx", "ppt"],
+            accept_multiple_files=False,
+        )
+        if uploaded is not None:
+            dest_dir = _dest_dir_for(uploaded.name)
+            os.makedirs(dest_dir, exist_ok=True)
+            dest = os.path.join(dest_dir, uploaded.name)
+            if dest in docs:
+                st.info(
+                    f"'{uploaded.name}' is already embedded. Re-embedding is a safe "
+                    "**upsert**: identical content is skipped; changed content "
+                    "replaces the old chunks (no duplicates)."
                 )
-                if summary.get("skipped"):
-                    st.info(
-                        f"'{uploaded.name}' already embedded with identical content "
-                        "— nothing to do (no duplicate chunks added)."
+            if st.button(f"Embed '{uploaded.name}'", type="primary"):
+                with open(dest, "wb") as f:
+                    f.write(uploaded.getbuffer())
+                try:
+                    with st.spinner(f"Embedding '{uploaded.name}'…"):
+                        summary = ingest_file(dest, vectorstore, skip_pages=_skip_pages())
+                    logger.info(
+                        "GUI embed '%s' | pages=%s tables=%s images=%s skipped=%s",
+                        uploaded.name, summary.get("pages"), summary.get("tables"),
+                        summary.get("images"), summary.get("skipped"),
                     )
-                else:
-                    st.success(
-                        f"Embedded '{uploaded.name}': {summary['pages']} pages/slides, "
-                        f"{summary['tables']} tables, {summary['images']} images extracted."
-                    )
-                # Refresh the cached store/list so the new doc appears.
-                st.rerun()
-            except Exception as ex:
-                logger.exception("failed to embed '%s'", uploaded.name)
-                st.error(f"Failed to embed '{uploaded.name}': {type(ex).__name__}: {ex}")
+                    if summary.get("skipped"):
+                        st.info(f"'{uploaded.name}' already embedded with identical "
+                                "content — nothing to do.")
+                    else:
+                        st.success(
+                            f"Embedded '{uploaded.name}': {summary['pages']} pages/slides, "
+                            f"{summary['tables']} tables, {summary['images']} images."
+                        )
+                    st.rerun()
+                except Exception as ex:
+                    logger.exception("failed to embed '%s'", uploaded.name)
+                    st.error(f"Failed to embed '{uploaded.name}': {type(ex).__name__}: {ex}")
+
+    # ---- Delete ----
+    with col_del:
+        st.markdown("#### 🗑️ Delete a document")
+        if not docs:
+            st.caption("No documents to delete.")
+        else:
+            name_to_path = {os.path.basename(d): d for d in docs}
+            choice = st.selectbox("Select a document", list(name_to_path.keys()))
+            target_path = name_to_path[choice]
+            st.warning(
+                f"Permanently removes **{choice}**: its chunks, extracted "
+                f"tables/images, and the source file. Cannot be undone."
+            )
+            confirm = st.checkbox(f"Yes, delete '{choice}' and all its data")
+            if st.button("Delete document", disabled=not confirm):
+                try:
+                    with st.spinner(f"Deleting '{choice}'…"):
+                        result = delete_document(target_path, vectorstore)
+                    msg = f"Deleted '{choice}': {result['chunks_deleted']} chunks removed"
+                    if result.get("source_removed"):
+                        msg += ", source file removed"
+                    st.success(msg)
+                    if result.get("error"):
+                        st.error(result["error"])
+                    st.rerun()
+                except Exception as ex:
+                    logger.exception("failed to delete '%s'", choice)
+                    st.error(f"Failed to delete '{choice}': {type(ex).__name__}: {ex}")
+
+
+def _tab_engine(cfg):
+    """Answer-engine + low-confidence settings."""
+    st.subheader("Answer engine")
+    st.caption(
+        "Which backend the chatbot/widget uses to answer. One at a time; if the "
+        "selected engine isn't available at runtime it falls back to extractive."
+    )
+    current = cfg.get("llm_provider", "none")
+    options = list(VALID_PROVIDERS)
+    choice = st.radio(
+        "Model",
+        options,
+        index=options.index(current) if current in options else options.index("none"),
+        format_func=lambda p: _PROVIDER_LABELS.get(p, p),
+    )
+    if choice != current:
+        save_config({"llm_provider": choice})
+        st.success(f"Answer engine set to: {choice}. New chat sessions will use it.")
 
     st.divider()
+    st.subheader("Low-confidence banner")
+    st.caption(
+        "Advisory banner shown above an answer when the best retrieval relevance "
+        "is below this floor. Never blocks an answer. 0.00 disables it."
+    )
+    current_thr = float(cfg.get("low_confidence_threshold", 0.63))
+    new_thr = st.slider(
+        "Relevance threshold", 0.0, 1.0, value=current_thr, step=0.05,
+    )
+    if abs(new_thr - current_thr) > 1e-9:
+        save_config({"low_confidence_threshold": new_thr})
+        st.success("Low-confidence banner disabled." if new_thr == 0.0
+                   else f"Threshold set to {new_thr:.2f}.")
 
-    # ---- Delete a document (destructive) ----
-    st.subheader("Delete a document")
-    if not docs:
-        st.caption("No documents to delete.")
-    else:
-        # Map display name -> stored path for selection.
-        name_to_path = {os.path.basename(d): d for d in docs}
-        choice = st.selectbox("Select a document to delete", list(name_to_path.keys()))
-        target_path = name_to_path[choice]
 
-        st.warning(
-            f"This will permanently remove **{choice}**: its embedded chunks, "
-            f"its extracted tables (`table/{getdirname(target_path)}/`), its extracted "
-            f"images (`pdf/{getdirname(target_path)}/`), and the source file. "
-            "This cannot be undone."
+def _tab_widget(cfg):
+    """Embeddable widget appearance/content settings."""
+    st.subheader("Chat widget")
+    st.caption(
+        "Appearance and greeting for the embeddable widget. Saved to config.json; "
+        "the widget reads them when it loads (no redeploy needed)."
+    )
+    with st.form("widget_form"):
+        new_welcome = st.text_area(
+            "Welcome message",
+            value=cfg.get("widget_welcome_message", ""),
+            height=80,
+            help="Shown when a visitor opens the widget. Blank = no greeting.",
         )
-        confirm = st.checkbox(f"Yes, delete '{choice}' and all its data")
+        c1, c2 = st.columns(2)
+        with c1:
+            new_title = st.text_input(
+                "Title", value=cfg.get("widget_title", "📚 Document Assistant"))
+        with c2:
+            new_ph = st.text_input(
+                "Input placeholder",
+                value=cfg.get("widget_input_placeholder", "Ask about the documents…"))
+        new_color = st.color_picker(
+            "Accent color", value=_safe_hex(cfg.get("widget_accent_color", "#2e7d32")))
+        submitted = st.form_submit_button("Save widget settings", type="primary")
 
-        if st.button("🗑️ Delete document", disabled=not confirm):
-            try:
-                with st.spinner(f"Deleting '{choice}'…"):
-                    result = delete_document(target_path, vectorstore)
-                msg = (
-                    f"Deleted '{choice}': {result['chunks_deleted']} chunks removed"
-                )
-                if result.get("assets_removed"):
-                    msg += f", assets: {', '.join(result['assets_removed'])}"
-                if result.get("source_removed"):
-                    msg += ", source file removed"
-                st.success(msg)
-                if result.get("error"):
-                    st.error(result["error"])
-                st.rerun()
-            except Exception as ex:
-                logger.exception("failed to delete '%s'", choice)
-                st.error(f"Failed to delete '{choice}': {type(ex).__name__}: {ex}")
+    if submitted:
+        save_config({
+            "widget_welcome_message": new_welcome,
+            "widget_title": new_title,
+            "widget_input_placeholder": new_ph,
+            "widget_accent_color": new_color,
+        })
+        st.success("Widget settings saved. Reload the widget to see changes.")
+
+
+def _tab_logging(cfg):
+    """Logging settings."""
+    st.subheader("Logging")
+    st.caption("Application log verbosity and optional file. Saved to config.json.")
+    _levels = list(VALID_LOG_LEVELS)
+    current_level = cfg.get("log_level", "INFO")
+    current_file = cfg.get("log_file", "")
+    with st.form("logging_form"):
+        new_level = st.selectbox(
+            "Log level", _levels,
+            index=_levels.index(current_level) if current_level in _levels else _levels.index("INFO"),
+        )
+        new_file = st.text_input(
+            "Log file (optional)", value=current_file,
+            placeholder="e.g. logs/app.log — blank = console only",
+            help="In Docker use a path under logs/ so it lands on the host at "
+                 "./logs/…  Takes effect on the next app restart.",
+        )
+        submitted = st.form_submit_button("Save logging settings", type="primary")
+    if submitted and (new_level != current_level or new_file != current_file):
+        save_config({"log_level": new_level, "log_file": new_file})
+        st.success(f"Logging set to {new_level}"
+                   + (f", file '{new_file}'" if new_file else " (console only)") + ".")
+
+
+def main():
+    load_dotenv()
+    st.set_page_config(page_title="Embedding Manager", page_icon="📥", layout="wide")
+    st.title("📥 Document Embedding Manager")
+
+    cfg = load_config()
+    vectorstore = _load_vectorstore()
+    docs = list_embedded_documents(vectorstore)
+    chunk_count = _count_chunks(vectorstore)
+
+    _sidebar_status(docs, chunk_count, cfg.get("llm_provider", "none"))
+
+    tab_docs, tab_engine, tab_widget, tab_logs = st.tabs(
+        ["📚 Documents", "⚙️ Answer engine", "💬 Chat widget", "🔧 Logging"]
+    )
+    with tab_docs:
+        _tab_documents(vectorstore, docs)
+    with tab_engine:
+        _tab_engine(cfg)
+    with tab_widget:
+        _tab_widget(cfg)
+    with tab_logs:
+        _tab_logging(cfg)
 
 
 if __name__ == "__main__":
