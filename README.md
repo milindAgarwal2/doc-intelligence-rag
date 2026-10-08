@@ -138,7 +138,8 @@ confidence-threshold settings — set them from the Embedding Manager GUI sideba
 per answered question (provider, retrieval breadth, best relevance score,
 low-confidence/refusal flags, source count, latency). Logs go to stderr, so
 `docker compose logs -f chatbot` shows them; set `log_file` to also persist them.
-(For one-off ops/Docker tweaks, env `LOG_LEVEL`/`LOG_FILE` override the config.)
+`config.json` is the single source of truth for logging — there are no logging
+env vars.
 
 Optional branding assets in the project root (inlined into the page as base64 at
 load time, if present): `AI.png`, `users.png`, `ericssonlogo.png`. Missing assets

@@ -135,8 +135,7 @@ def main():
             index=_levels.index(current_level) if current_level in _levels else _levels.index("INFO"),
             help=(
                 "Verbosity of application logs (written to stderr). Stored in "
-                "config.json. Takes effect on the next app start / rerun. "
-                "An env var LOG_LEVEL, if set, overrides this."
+                "config.json. Takes effect on the next app start / rerun."
             ),
         )
         current_file = cfg.get("log_file", "")

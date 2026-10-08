@@ -167,9 +167,9 @@ ANTHROPIC_API_KEY=sk-ant-...your-key...
 > retrieval breadth, best relevance score, low-confidence/refusal flags, source
 > count, and latency — plus warnings on provider fallback and ingest/asset errors.
 > Logs go to **stderr** (so `docker compose logs -f` shows them); set `log_file` to
-> also persist them. For one-off ops/Docker tweaks, env `LOG_LEVEL`/`LOG_FILE`
-> override the config. The evaluation harness prints its report to stdout and is
-> intentionally separate from logging.
+> also persist them. `config.json` is the **single source of truth** for logging —
+> there are no logging env vars. The evaluation harness prints its report to stdout
+> and is intentionally separate from logging.
 
 > 🔐 `.env` is git-ignored and holds **only secrets** (the API key). **Never commit
 > your API key** or hardcode it in source.

@@ -33,9 +33,8 @@ LOW_CONFIDENCE_MIN = 0.0
 LOW_CONFIDENCE_MAX = 1.0
 
 # Logging (wishlist #6). Non-secret, tunable settings -> they live in config.json
-# like every other knob, NOT in env. (Env vars LOG_LEVEL / LOG_FILE are still
-# honored as an optional ops/Docker OVERRIDE, but config.json is the source of
-# truth and the documented place to change them.)
+# like every other knob. config.json is the SINGLE source of truth (no env vars),
+# so there is no ambiguity about where logging is configured.
 VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 DEFAULTS = {
@@ -135,18 +134,10 @@ def get_low_confidence_threshold():
 
 
 def get_log_level():
-    """Return the effective log level name. Env LOG_LEVEL overrides config
-    (useful for one-off ops/Docker tweaks); otherwise config.json wins."""
-    env = os.getenv("LOG_LEVEL")
-    if env:
-        return _normalize_log_level(env, load_config()["log_level"])
+    """Return the configured log level name (from config.json)."""
     return load_config()["log_level"]
 
 
 def get_log_file():
-    """Return the log-file path ("" = console only). Env LOG_FILE overrides
-    config.json if set."""
-    env = os.getenv("LOG_FILE")
-    if env is not None and env != "":
-        return env
+    """Return the configured log-file path from config.json ("" = console only)."""
     return load_config()["log_file"]

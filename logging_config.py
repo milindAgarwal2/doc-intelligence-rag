@@ -12,8 +12,7 @@ Design
   ``docker compose logs``.
 - Level + optional file come from ``config.json`` (keys ``log_level`` /
   ``log_file``) — the same user-editable, non-secret config as every other knob.
-  Env vars ``LOG_LEVEL`` / ``LOG_FILE`` are honored only as an optional ops
-  override (see config.get_log_level / get_log_file).
+  config.json is the SINGLE source of truth (no env vars) to avoid confusion.
 - ``setup_logging()`` is idempotent — safe to call on every Streamlit rerun.
 
 Note: the evaluation harness (tests/eval) prints its report to stdout on
