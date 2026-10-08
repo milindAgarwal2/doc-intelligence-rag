@@ -8,6 +8,12 @@ provability > deployment > observability > answer-quality tweak > polish).
 Match type legend: DIRECT = same item on both lists; PARTIAL = overlapping
 intent, differing scope.
 
+PROGRESS (as of session 2026-10-07):
+  [DONE] #1 Hash-ID upsert (no duplicate chunks)
+  [DONE] #3 Low-confidence banner (threshold in config.json, default 0.63)
+  [DONE] #4 Evaluation harness (tests/eval: recall@k + calibration)
+  [TODO] #2 Authentication, #5 Docker, #6 Observability, #7 SDK/temperature, #8 UX
+
 
 1. STOP RE-EMBED DUPLICATES (hash ID + upsert)              [DIRECT]
    -------------------------------------------------------------------

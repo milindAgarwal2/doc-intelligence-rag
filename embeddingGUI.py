@@ -93,6 +93,32 @@ def main():
         )
         st.divider()
 
+        # ---- Low-confidence threshold (wishlist #3) ----
+        # Non-blocking: controls when the chatbot shows a "low confidence" banner
+        # above an answer (top retrieval relevance below this floor). Does NOT
+        # block answers. 0.0 disables the banner.
+        st.subheader("Low-confidence banner")
+        current_thr = float(cfg.get("low_confidence_threshold", 0.30))
+        new_thr = st.slider(
+            "Show a 'low confidence' banner when the best match scores below:",
+            min_value=0.0,
+            max_value=1.0,
+            value=current_thr,
+            step=0.05,
+            help=(
+                "Cosine relevance (0–1, higher = better match). The banner is "
+                "advisory and never blocks an answer. Set to 0.00 to disable it. "
+                "Takes effect on the next chatbot question."
+            ),
+        )
+        if abs(new_thr - current_thr) > 1e-9:
+            save_config({"low_confidence_threshold": new_thr})
+            if new_thr == 0.0:
+                st.success("Low-confidence banner disabled.")
+            else:
+                st.success(f"Low-confidence threshold set to {new_thr:.2f}.")
+        st.divider()
+
     vectorstore = _load_vectorstore()
 
     # ---- Status: how many documents are embedded ----

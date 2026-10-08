@@ -1,0 +1,58 @@
+{
+  "_comment": "RAG evaluation reference set. Each item is a question with its GROUND-TRUTH source (human-asserted). Matching is by file basename + page, so the 'pdf/' or 'pptx/' prefix and minor filename variants don't matter. Questions whose expect_file is NOT currently embedded are SKIPPED (not failed), so this set can grow as documents are added. Negative cases (expect_file=null) assert the system should NOT confidently match — used for confidence calibration.",
+  "k": 8,
+  "recall_floor": 0.75,
+  "questions": [
+    {
+      "q": "current consumption in dormant mode",
+      "expect_file": "RP-008307-DS-2-pico-datasheet.pdf",
+      "expect_page": 17,
+      "note": "Pico datasheet dormant-mode current (Table 4)."
+    },
+    {
+      "q": "BOOTSEL button function",
+      "expect_file": "RP-008307-DS-2-pico-datasheet.pdf",
+      "expect_page": 15,
+      "note": "Pico BOOTSEL (Table 3)."
+    },
+    {
+      "q": "ADC analog input specification",
+      "expect_file": "RP-008307-DS-2-pico-datasheet.pdf",
+      "expect_page": 19,
+      "note": "Pico ADC electrical spec."
+    },
+    {
+      "q": "ordering code part number",
+      "expect_file": "RP-008307-DS-2-pico-datasheet.pdf",
+      "expect_page": 24,
+      "note": "Pico ordering code (Table 6)."
+    },
+    {
+      "q": "spectrum allocation bandwidth Europe UK",
+      "expect_file": "1809.09617v2 (1).pdf",
+      "expect_page": 1,
+      "note": "UAV/PS-LTE spectrum allocation table. NOTE: embedded as '1809.09617v2 (1).pdf' due to the known filename churn; update if re-embedded under the canonical name."
+    },
+    {
+      "q": "computation cycles data size offloading parameters",
+      "expect_file": "1809.09617v2 (1).pdf",
+      "expect_page": 6,
+      "note": "UAV/PS-LTE offloading parameters table. NOTE: embedded as '1809.09617v2 (1).pdf' due to the known filename churn."
+    },
+    {
+      "q": "medieval French poetry",
+      "expect_file": null,
+      "note": "NEGATIVE: not in any document; should be low-confidence / refused."
+    },
+    {
+      "q": "stock market prices today",
+      "expect_file": null,
+      "note": "NEGATIVE: off-topic; should be low-confidence / refused."
+    },
+    {
+      "q": "recipe for chocolate cake",
+      "expect_file": null,
+      "note": "NEGATIVE: off-topic; should be low-confidence / refused."
+    }
+  ]
+}

@@ -16,7 +16,7 @@ load_dotenv()
 from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
-from config import load_config, VALID_PROVIDERS
+from config import load_config, VALID_PROVIDERS, get_low_confidence_threshold
 
 # Reads ANTHROPIC_API_KEY from the environment (.env) - never hardcode it here.
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
@@ -60,6 +60,39 @@ def retrieve_docs(user_question):
         search_kwargs={"k": 8, "fetch_k": 24, "lambda_mult": 0.6},
     )
     return retriever.invoke(user_question)
+
+
+def confidence_probe(user_question):
+    """Return the single best retrieval *relevance* score for a query, in [0, 1].
+
+    This is a lightweight, SEPARATE scored probe used only for the confidence
+    banner (wishlist #3). The answer itself still uses MMR via retrieve_docs();
+    MMR's invoke() path discards scores, so we run one extra cheap
+    similarity_search_with_relevance_scores(k=1) purely to read the top score.
+    Higher = more similar (cosine relevance). Returns None if scoring is
+    unavailable (e.g. empty store) so callers can skip the banner gracefully.
+    """
+    embedding_function = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+    vectorstore = Chroma(
+        "Project_NAME",
+        persist_directory="./chroma_Name",
+        embedding_function=embedding_function,
+        collection_metadata={"hnsw:space": "cosine"},
+    )
+    try:
+        scored = vectorstore.similarity_search_with_relevance_scores(
+            user_question, k=1
+        )
+    except Exception as ex:
+        print("confidence_probe failed:", ex)
+        return None
+    if not scored:
+        return None
+    # scored is a list of (Document, relevance_score); take the best (first).
+    try:
+        return float(scored[0][1])
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +540,30 @@ def suggest_followups(answer_text, docs, provider, n=3):
     return uniq[:n]
 
 
+def _is_refusal(answer_text):
+    """True if a generative answer is a grounded 'I don't know' refusal.
+
+    The synthesis prompt instructs the model to "say you don't know based on the
+    available documents" when the context lacks the answer. Such a refusal emits
+    no [file p.N] citations, so without this check _cited_pages() would fall
+    back to ALL retrieved pages and wrongly surface source-download buttons and
+    assets for a question the documents don't actually answer. Matching is
+    conservative (anchored to the known refusal phrasing + an opening position)
+    to avoid muting a real answer that merely contains the words "don't know".
+    """
+    if not answer_text:
+        return True
+    head = answer_text.strip().lower()[:160]
+    patterns = (
+        "i don't know",
+        "i don’t know",      # curly apostrophe variant
+        "i do not know",
+        "i couldn't find",
+        "i could not find",
+    )
+    return any(p in head for p in patterns)
+
+
 def _cited_pages(answer_text, offered_pages):
     """Return the subset of offered (file, page) tuples actually cited in the
     answer text, matched by the [<file> p.<N>] markers the model emitted.
@@ -657,6 +714,17 @@ def answer_question(user_question, include_image, include_table, provider, histo
     with st.spinner("Searching your documents…"):
         docs = retrieve_docs(search_query)
 
+    # Confidence signal (wishlist #3): read the single best relevance score for
+    # this query. If it's below the configured floor, show a NON-BLOCKING banner
+    # above the answer. The answer still renders either way.
+    threshold = get_low_confidence_threshold()
+    best_score = confidence_probe(search_query) if docs else None
+    low_confidence = (
+        best_score is not None and threshold > 0 and best_score < threshold
+    )
+    if low_confidence:
+        _render_low_confidence_banner(best_score)
+
     if not docs:
         answer_text = "I couldn't find anything relevant in the indexed documents."
         offered_pages = []
@@ -682,6 +750,13 @@ def answer_question(user_question, include_image, include_table, provider, histo
             answer_text = "".join(acc)
             placeholder.markdown(answer_text)
 
+            # A grounded "I don't know" refusal cites nothing. Clear the offered
+            # pages so _cited_pages() does NOT fall back to all retrieved pages
+            # (which would wrongly show source-download buttons and assets for a
+            # question the documents don't actually answer).
+            if _is_refusal(answer_text):
+                offered_pages = []
+
     # Scope downloads AND rendered assets to what the answer actually cited, so
     # a cross-document chunk that retrieval pulled in but the answer never used
     # doesn't show a stray download button or figure. _cited_pages falls back to
@@ -701,8 +776,16 @@ def answer_question(user_question, include_image, include_table, provider, histo
         st.markdown(assets_html, unsafe_allow_html=True)
 
     # Suggested follow-up questions (generative providers only; grounded in the
+    # Suggested follow-up questions (generative providers only; grounded in the
     # answer + retrieved context). Rendered as clickable buttons by the caller.
-    followups = suggest_followups(answer_text, docs, provider) if docs else []
+    # Suppressed on a grounded refusal: when the answer is "I don't know", the
+    # retrieved chunks are off-topic, so follow-ups generated from them would be
+    # about unrelated documents (not the user's actual question).
+    followups = (
+        suggest_followups(answer_text, docs, provider)
+        if docs and not _is_refusal(answer_text)
+        else []
+    )
 
     turn = {
         "role": "assistant",
@@ -710,6 +793,7 @@ def answer_question(user_question, include_image, include_table, provider, histo
         "assets_html": assets_html,
         "sources": sources,
         "followups": followups,
+        "low_confidence": low_confidence,
     }
     return turn
 
@@ -749,6 +833,18 @@ def _render_followups(followups, idx):
         )
 
 
+def _render_low_confidence_banner(best_score=None):
+    """Render the non-blocking low-confidence advisory (wishlist #3)."""
+    detail = ""
+    if best_score is not None:
+        detail = f" (top match relevance {best_score:.2f})"
+    st.warning(
+        "⚠️ **Low confidence:** limited matching content was found for this "
+        f"question{detail}. The answer below may be incomplete or less reliable — "
+        "verify it against the cited source pages."
+    )
+
+
 def _render_turn(turn, idx):
     """Render one chat turn using Streamlit chat primitives."""
     if turn["role"] == "user":
@@ -756,6 +852,8 @@ def _render_turn(turn, idx):
             st.markdown(turn["content"])
     else:
         with st.chat_message("assistant"):
+            if turn.get("low_confidence"):
+                _render_low_confidence_banner()
             st.markdown(turn["content"])
             if turn.get("assets_html"):
                 st.markdown(turn["assets_html"], unsafe_allow_html=True)

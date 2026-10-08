@@ -49,7 +49,11 @@ results.
 - 🖼️ Returns **images** from cited pages (sidebar toggle: *Include figures from cited pages*)
 - 📊 Returns **tables** from cited pages (sidebar toggle: *Include tables from cited pages*)
 - ⬇️ **Download button** for each cited source document
-- 🚧 **Grounded**: says "I don't know" when the answer isn't in the documents
+- 🚧 **Grounded**: says "I don't know" when the answer isn't in the documents —
+  and on such a refusal shows **no** source downloads, figures/tables, or follow-ups
+- ⚠️ **Low-confidence banner**: a non-blocking advisory above the answer when the
+  best retrieval relevance is below `low_confidence_threshold` (in `config.json`,
+  default **0.63**, tunable via the GUI slider; `0.0` disables)
 - 🔢 **Table content is semantically searchable** — each table's cell values are
   embedded as their own chunk, so queries matching values inside a table retrieve it
 - 🧹 **Per-page de-duplication** — the same image/table renders only once per answer
@@ -318,7 +322,7 @@ streamlit run embeddingGUI.py --server.port 8502
 |---|---|---|
 | 1 | Ask a question about your PDF content | A single **streamed, synthesized** answer appears in a chat bubble |
 | 2 | Read the answer | Each claim carries an inline **`[filename p.N]`** citation |
-| 3 | Ask something not in the docs | The assistant says it doesn't know (grounded, no hallucination) |
+| 3 | Ask something not in the docs | "I don't know" (grounded); a **⚠️ Low confidence** banner appears; **no** source downloads / figures / follow-ups |
 | 3b | Ask a question, then a short follow-up (e.g. "what about at 85°C?") | The follow-up is answered in context; clickable **suggested follow-ups** appear under answers |
 | 4 | Tick **Include figures from cited pages**, ask about a cited page with figures | Image(s) render below the answer |
 | 5 | Tick **Include tables from cited pages**, ask about a cited page with a table | Table renders as HTML below the answer |

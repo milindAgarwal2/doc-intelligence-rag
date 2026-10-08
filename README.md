@@ -286,7 +286,16 @@ git-ignored). It runs in-process on CPU via `llama-cpp-python` — no server, no
 ### Behaviour notes
 
 - The answer is **grounded**: if the retrieved context doesn't contain the answer,
-  the assistant says it doesn't know rather than inventing facts.
+  the assistant says it doesn't know rather than inventing facts. On such a grounded
+  refusal, **no source downloads, figures/tables, or suggested follow-ups are shown**
+  (they'd otherwise reflect off-topic retrieved chunks, not the user's question).
+- **Low-confidence banner.** Before answering, the app reads the single best
+  retrieval relevance score; if it falls below a configurable threshold
+  (`low_confidence_threshold` in `config.json`, default **0.63**), a non-blocking
+  "⚠️ Low confidence" banner appears above the answer. The answer still renders — the
+  banner is advisory. Tune the threshold from the Embedding Manager GUI slider, or set
+  it to `0.0` to disable. The default is **data-backed** by the evaluation harness
+  (see below).
 - **Citations drive attribution.** Rendered figures/tables and the source download
   buttons are scoped to the pages the answer actually **cited**, so a chunk that
   retrieval pulled in but the answer didn't use won't show a stray asset or download.
@@ -305,7 +314,7 @@ git-ignored). It runs in-process on CPU via `llama-cpp-python` — no server, no
 | Action | Expected |
 |---|---|
 | Ask about PDF content | A single **streamed, synthesized** answer with inline `[file p.N]` citations |
-| Ask something not in the docs | The assistant says it doesn't know (grounded, no hallucination) |
+| Ask something not in the docs | The assistant says it doesn't know (grounded, no hallucination); a **⚠️ Low confidence** banner appears; **no** source downloads / figures / follow-ups |
 | Tick **Include figures**, ask about a cited page with figures | Page image(s) render inline below the answer |
 | Tick **Include tables**, ask about a cited page with a table | Table renders as HTML below the answer |
 | Query a value that lives inside a table | The table's page is retrieved (content-level search) |
@@ -317,6 +326,39 @@ Service health:
 ```bash
 curl -s -o /dev/null -w "app:%{http_code}\n" http://localhost:8501/
 ```
+
+---
+
+## Evaluation harness
+
+An offline, maintainer-facing harness (`tests/eval/`) measures retrieval quality so
+you can catch regressions and tune settings with evidence. It is **embedding-only —
+no LLM calls, no API cost** — and drives the same functions the chatbot uses.
+
+```bash
+.venv/bin/python -m tests.eval.run            # human-readable report + pass/fail
+.venv/bin/python -m tests.eval.run --json report.json
+```
+
+It reports:
+
+- **Retrieval recall@k** — for each ground-truth question, is the expected page in
+  the top-k retrieved chunks? Exits non-zero if recall drops below `recall_floor`
+  (CI-gating), so retrieval regressions are caught before users see them.
+- **Confidence calibration** — the score distributions for in-corpus vs off-topic
+  questions and a **suggested `low_confidence_threshold`** sitting in the gap between
+  them. (The current **0.63** default was set this way: in-corpus min ≈0.65,
+  off-topic max ≈0.61.)
+
+The reference set lives in `tests/eval/dataset.json` (plain JSON, human-asserted
+question→page pairs). It **adapts to a changing store**: a question whose document
+isn't currently embedded is **skipped** (reported, not failed), so you keep questions
+for documents that come and go. Add a document → add its question(s); remove one →
+its questions auto-skip. See `tests/eval/README.md` for details.
+
+> With a small corpus the recall number is **directional, not statistically strong**;
+> it becomes more meaningful as documents and questions grow. The calibration half is
+> useful immediately for setting the banner threshold.
 
 ---
 
