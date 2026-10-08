@@ -18,7 +18,7 @@ This project keeps the images and tables. It is "smart" during ingestion (extrac
 and saving tables/images keyed by document + page) and uses a little ingenuity at
 query time (reconstructing those assets from metadata and rendering them inline).
 
-## How it works (two parts)
+## How it works (three parts)
 
 - **Part 1 — Ingestion (`embeddingEngine.py`):** for each **PDF page or PPTX slide**,
   extract text, tables, and images. Embed the text (and the table content too) into a
@@ -34,6 +34,13 @@ query time (reconstructing those assets from metadata and rendering them inline)
   reconstructs and renders the images/tables from the **cited** pages, offers a
   download button for each cited source, and suggests **clickable follow-up
   questions**.
+- **Part 3 — Embeddable widget (`api_server.py` + `widget/`):** the same retrieval
+  and answer logic (via a shared, UI-free `generate_answer()`) exposed over an HTTP
+  API (FastAPI) and a one-line **JavaScript widget** that drops a floating chat bubble
+  onto *any* website. The Streamlit app and the widget share the exact same backend;
+  the widget just renders in the host page instead of Streamlit, with **clickable
+  source citations** and suggested follow-ups. See
+  [Embeddable chat widget](#embeddable-chat-widget).
 
 ## Toolset
 
@@ -86,8 +93,11 @@ query matching the table's *content* (not just nearby prose) retrieves that page
 | File | Purpose |
 |---|---|
 | `embeddingEngine.py` | Ingestion: extract text/tables/images + embed. Reusable functions `get_vectorstore`, `ingest_pdf`, `ingest_pptx`, `ingest_file` (dispatcher), `list_embedded_documents`, `delete_document`. |
-| `chatBOT_engine.py` | Streamlit chatbot (retrieval + Claude + rendering + chat-to-PDF). |
+| `chatBOT_engine.py` | Streamlit chatbot (retrieval + Claude + rendering + chat-to-PDF). Also hosts the UI-free `generate_answer()` shared with the widget API. |
 | `embeddingGUI.py` | Streamlit GUI to view / upload / delete embedded documents. |
+| `api_server.py` | FastAPI backend for the embeddable widget (`/api/chat`, `/api/health`, `/api/source/{name}`). |
+| `widget/` | Embeddable JS chat widget (`widget.js`, `widget.css`). |
+| `demo-site/` | Fake third-party site that embeds the widget (cross-origin demo). |
 | `htmlTemplates.py` | CSS + chat message HTML templates. |
 | `requirements.txt` | Python dependencies. |
 | `.env` | Holds `ANTHROPIC_API_KEY` (git-ignored). |
