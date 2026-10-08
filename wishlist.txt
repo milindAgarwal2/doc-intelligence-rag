@@ -8,16 +8,19 @@ provability > deployment > observability > answer-quality tweak > polish).
 Match type legend: DIRECT = same item on both lists; PARTIAL = overlapping
 intent, differing scope.
 
-PROGRESS (as of session 2026-10-07):
+PROGRESS (as of session 2026-10-08):
   [DONE] #1 Hash-ID upsert (no duplicate chunks)
   [DONE] #3 Low-confidence banner (threshold in config.json, default 0.63)
   [DONE] #4 Evaluation harness (tests/eval: recall@k + calibration)
-  [DONE] #5 Docker (Dockerfile + docker-compose: chatbot :8501 + GUI :8502)
+  [DONE] #5 Docker (Dockerfile + docker-compose; now 4 services: chatbot :8501,
+             gui :8502, api :8000, demo :9000)
   [DONE] #6 Observability — structured logging (logging_config.py; print()->logging;
              per-query structured log line; log_level/log_file in config.json,
-             GUI-editable; env LOG_LEVEL/LOG_FILE as optional override). NOTE: this
-             is the LIGHTWEIGHT half; full tracing/dashboard split out as #9.
-  [TODO] #2 Authentication, #7 SDK/temperature, #8 UX
+             GUI-editable). NOTE: lightweight half; full tracing/dashboard = #9.
+  [DONE] #10 Embeddable chat widget (API + JS widget + demo site)
+  [DONE] #11 Configurability + Admin GUI polish (widget + chatbot UI all
+             config.json-driven; tabbed Admin Console; Deploy button hidden)
+  [TODO] #2 Authentication (URGENT — widget API is open), #7 SDK/temperature, #8 UX
   [DEFERRED] #9 Full tracing + admin dashboard (see below)
 
 
@@ -165,4 +168,31 @@ ADDED ITEMS (beyond the original 8)
    allowlist (from config), API key per embedder, rate limiting. Also:
    streaming answers, inline figures/tables in the widget (text+citations
    only today).
+
+
+11. CONFIGURABILITY + ADMIN GUI POLISH (session 2026-10-08) [DONE]
+   -------------------------------------------------------------------
+   Everything user-facing is now config.json-driven and editable from the
+   Admin Console GUI (no redeploy for config changes — config.json is a
+   mounted volume; GUI CODE changes DO need `docker compose up --build gui`).
+   - Widget: welcome message, title, input placeholder, accent color — all in
+     config.json; API /api/health returns them; widget reads them on load
+     (fresh each open for welcome). Accent color validated server-side
+     (#hex/rgb/hsl/named) to prevent style injection. Bugs fixed: minimize
+     (CSS [hidden] vs display:flex) and clickable source links.
+   - Chatbot UI: title, subtitle (blank hides), input placeholder, and all
+     sidebar labels (answer-options/figures/tables/conversation/clear-chat)
+     configurable; PLUS chatbot_show_figures_option / chatbot_show_tables_option
+     to HIDE those options entirely for clients with no images/tables (feature
+     forced off when hidden).
+   - Admin Console redesign: removed the sidebar; tabbed layout
+     (📚 Documents | ⚙️ Answer engine | 🤖 Chatbot | 💬 Chat widget | 🔧 Logging);
+     doc metrics moved atop Documents tab; title renamed "Document Assistant —
+     Admin Console". Chatbot vs Widget settings are SEPARATE tabs by request.
+   - Hid Streamlit's Deploy button / dev menu on both apps
+     (.streamlit/config.toml toolbarMode="viewer" + CSS fallback).
+   - Logging: log_level/log_file moved from env to config.json (env removed);
+     host-visible log file via mounted ./logs volume (log_file="logs/app.log").
+   KEY LESSON (user corrected twice): non-secret tunables live in config.json,
+   NOT env. And GUI/code changes require a container rebuild to show up.
 

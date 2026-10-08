@@ -425,23 +425,30 @@ deactivate 2>/dev/null; rm -rf .venv
 
 ## Docker deployment
 
-The **whole application** (chatbot **and** the Embedding Manager GUI) ships as a
-single image. `docker-compose.yml` runs it as two services from that one image,
-sharing all runtime data (vector store, extracted assets, uploads, config, Qwen
-model) through host-mounted volumes — so a document embedded in the GUI is
-immediately queryable in the chatbot, and everything persists across restarts.
+The **whole application** ships as a single image. `docker-compose.yml` runs it as
+**four services** from that one image, sharing all runtime data (vector store,
+extracted assets, uploads, config, Qwen model, logs) through host-mounted volumes —
+so a document embedded in the Admin Console is immediately queryable in the chatbot
+and the widget, and everything persists across restarts.
 
-| Service | URL | Container |
-|---|---|---|
-| Chatbot | http://localhost:8501 | `techdoc-chatbot` |
-| Embedding Manager GUI | http://localhost:8502 | `techdoc-gui` |
+| Service | URL | Container | What |
+|---|---|---|---|
+| Chatbot | http://localhost:8501 | `techdoc-chatbot` | Streamlit chat UI |
+| Admin Console (GUI) | http://localhost:8502 | `techdoc-gui` | Documents + settings |
+| Widget API | http://localhost:8000 | `techdoc-api` | FastAPI backend for the embeddable widget |
+| Demo site | http://localhost:9000 | `techdoc-demo` | Fake site embedding the widget (cross-origin) |
+
+> The **chatbot** and **Admin Console** are Streamlit apps; the **Widget API** serves
+> the embeddable JS widget (`/api/chat`, `/api/health`, `/api/source/{name}`) and the
+> **demo site** is a fake third-party page that embeds it on a different origin to
+> prove the cross-origin embed. See the main README's *Embeddable chat widget* section.
 
 ### With Docker Compose (recommended)
 
 ```bash
 cp .env.example .env          # add ANTHROPIC_API_KEY (only needed for the Claude engine)
 
-docker compose up --build     # build once, start BOTH services
+docker compose up --build     # build once, start ALL FOUR services
 # or detached:
 docker compose up -d --build
 
@@ -487,8 +494,12 @@ container health:
 ```bash
 curl -s -o /dev/null -w "chatbot:%{http_code}\n" http://localhost:8501/_stcore/health
 curl -s -o /dev/null -w "gui:%{http_code}\n"     http://localhost:8502/_stcore/health
-# both → 200
+curl -s -o /dev/null -w "api:%{http_code}\n"     http://localhost:8000/api/health
+# all → 200
 ```
+
+> Then open **http://localhost:9000** to see the **embeddable widget** running on a
+> fake third-party site (talking cross-origin to the API on `:8000`).
 
 ### Notes
 
