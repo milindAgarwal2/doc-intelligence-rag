@@ -207,8 +207,12 @@ Features:
 - **Delete a document** → removes its Chroma chunks, its `table/<doc>/` and `pdf/<doc>/`
   assets, and the source file. Requires a confirmation checkbox (destructive).
 
-> Re-embedding a PDF with the **same filename** appends duplicate chunks (there is no
-> delete-before-readd). Delete it first for a clean re-embed. The GUI warns you.
+> **Re-embed is a safe upsert (content-hash keyed).** Each document is identified by
+> a SHA-256 hash of its contents, stored on every chunk as `doc_hash`. Re-embedding a
+> file with **identical content** is a no-op (skipped — no duplicate chunks).
+> Re-embedding **changed content** (or the same filename with new bytes) first deletes
+> the old chunks and stale extracted assets, then re-adds — so duplicates never
+> accumulate.
 
 ---
 

@@ -238,8 +238,11 @@ This will:
 - Create `pdf/<doc>/<page>/imageN.png` for pages with images
 - Download the `bge-small-en-v1.5` ONNX model on first run
 
-> `embeddingEngine.py` calls `reset_collection()` at startup, so each run rebuilds
-> the collection cleanly (no duplicate embeddings).
+> `embeddingEngine.py` calls `reset_collection()` at startup, so each **batch** run
+> rebuilds the collection cleanly (no duplicate embeddings). For **incremental**
+> add/update (via the GUI or `ingest_file`), re-embedding is a **content-hash upsert**:
+> identical content is skipped and changed content replaces the old chunks — so
+> duplicates never accumulate.
 
 **Sanity check:**
 
@@ -301,8 +304,11 @@ streamlit run embeddingGUI.py --server.port 8502
 - **Delete a document** → removes its Chroma chunks, its `table/<doc>/` and
   `pdf/<doc>/` assets, and the source file. Requires a confirmation checkbox.
 
-> ⚠️ Re-embedding a PDF with the **same filename** appends duplicate chunks (no
-> delete-before-readd). Delete it first for a clean re-embed; the GUI warns you.
+> ✅ **Re-embed is a safe upsert (content-hash keyed).** Each document carries a
+> SHA-256 `doc_hash` on every chunk. Re-embedding **identical content** is a no-op
+> (skipped). Re-embedding **changed content** (or the same filename with new bytes)
+> deletes the old chunks and stale extracted assets first, then re-adds — so
+> duplicates never accumulate. The GUI reports when an upload was skipped as unchanged.
 
 ---
 

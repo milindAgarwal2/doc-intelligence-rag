@@ -1,5 +1,6 @@
 import gc
 import glob
+import hashlib
 import os
 
 from dotenv import load_dotenv
@@ -29,6 +30,92 @@ def getdirname(filepath):
     base = os.path.splitext(base)[0]
     base = base.replace(" ", "")
     return base
+
+
+def compute_doc_hash(filepath):
+    """Return a content-addressed ID for a document: SHA-256 of its raw bytes.
+
+    This is the stable identity of a document independent of its filename. If
+    the same bytes are re-uploaded (even under a different name), the hash is
+    identical, so we can detect a no-op re-embed and skip it. Streamed in
+    chunks so large files don't load fully into memory.
+    """
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def delete_chunks_for_file(vectorstore, filepath):
+    """Delete ONLY the embedded Chroma chunks whose file_name == filepath.
+
+    Unlike delete_document(), this leaves the extracted assets (table/, pdf/)
+    and the source file on disk untouched — it is the "delete-before-readd"
+    step of an upsert. Returns the number of chunks removed.
+    """
+    try:
+        before = vectorstore._collection.count()
+        vectorstore._collection.delete(where={"file_name": filepath})
+        after = vectorstore._collection.count()
+        return max(0, before - after)
+    except Exception:
+        return 0
+
+
+def _existing_doc_hash(vectorstore, filepath):
+    """Return the doc_hash already stored for this file_name, or None.
+
+    Reads one matching chunk's metadata. Used to detect an identical-content
+    re-embed (same bytes under the same name) so we can skip the work entirely.
+    """
+    try:
+        data = vectorstore._collection.get(
+            where={"file_name": filepath}, include=["metadatas"], limit=1
+        )
+    except Exception:
+        return None
+    metas = (data or {}).get("metadatas") or []
+    if metas and metas[0]:
+        return metas[0].get("doc_hash")
+    return None
+
+
+def _prepare_upsert(vectorstore, filepath):
+    """Shared upsert pre-step for the ingesters.
+
+    Computes the document's content hash and reconciles the store:
+      - If chunks already exist for this file_name with the SAME hash, the
+        content is unchanged -> return (doc_hash, True) to signal "skip".
+      - Otherwise delete any existing chunks for this file_name (stale or a
+        different filename collision) and return (doc_hash, False) to proceed.
+
+    This makes a re-embed an UPSERT: identical content is a no-op, changed
+    content REPLACES the old chunks instead of appending duplicates.
+    """
+    doc_hash = compute_doc_hash(filepath)
+    existing = _existing_doc_hash(vectorstore, filepath)
+    if existing is not None and existing == doc_hash:
+        return doc_hash, True  # unchanged -> skip
+    # Changed content, or a stale/partial prior embed: clear it first.
+    delete_chunks_for_file(vectorstore, filepath)
+    return doc_hash, False
+
+
+def _clear_asset_dirs(filepath):
+    """Remove previously extracted assets (table/<doc>/, pdf/<doc>/) for a file.
+
+    Called before re-ingesting CHANGED content so stale images/tables from a
+    prior version (e.g. for pages that no longer exist) don't linger on disk
+    and get rendered. Leaves the source file itself in place.
+    """
+    import shutil
+
+    docdir = getdirname(filepath)
+    for base in ("table", "pdf"):
+        assetdir = os.path.join(base, docdir)
+        if os.path.isdir(assetdir):
+            shutil.rmtree(assetdir, ignore_errors=True)
 
 
 def get_text_chunks(text):
@@ -109,7 +196,7 @@ def table_to_text(df):
     return "\n".join(lines)
 
 
-def storetableembedding(table_text, vectorstore, file, pagenumber):
+def storetableembedding(table_text, vectorstore, file, pagenumber, doc_hash=None):
     """Embed a single table's text content as a searchable chunk.
 
     The chunk is tagged tablePresent=1 so the retriever's table-rendering path
@@ -125,17 +212,18 @@ def storetableembedding(table_text, vectorstore, file, pagenumber):
             "imagePresent": 0,
             "tablePresent": 1,
             "contentType": "table",
+            "doc_hash": doc_hash or "",
         },
     )
     vectorstore.add_documents(documents=[document])
 
 
-def storetextembedding(text_chunks, vectorstore, file, pagenumber, hasImage, hasTable):
+def storetextembedding(text_chunks, vectorstore, file, pagenumber, hasImage, hasTable, doc_hash=None):
 
     loadingdocuments =  []
 
     for text in text_chunks:
-        document_1 = Document(page_content=text, metadata={"file_name": file, "pagenumber": pagenumber, "imagePresent": hasImage, "tablePresent":hasTable})
+        document_1 = Document(page_content=text, metadata={"file_name": file, "pagenumber": pagenumber, "imagePresent": hasImage, "tablePresent":hasTable, "doc_hash": doc_hash or ""})
         loadingdocuments.append(document_1)
 
     if len(loadingdocuments) != 0:
@@ -160,10 +248,21 @@ def ingest_pdf(filepath, vectorstore, skip_pages=0):
     This does NOT reset the collection, so it can be used to incrementally add
     new documents. Returns a dict summary: pages processed, tables, images.
     Safe to call repeatedly; existing extracted assets are overwritten.
+
+    Re-embed is an UPSERT keyed by a content hash: re-ingesting the SAME bytes
+    is a no-op (returns skipped=True); re-ingesting CHANGED content first
+    deletes the old chunks and stale assets so no duplicates accumulate.
     """
     gc.collect()
 
-    summary = {"pages": 0, "tables": 0, "images": 0}
+    summary = {"pages": 0, "tables": 0, "images": 0, "skipped": False}
+
+    # Upsert pre-step: skip if unchanged, else clear old chunks + stale assets.
+    doc_hash, skip = _prepare_upsert(vectorstore, filepath)
+    if skip:
+        summary["skipped"] = True
+        return summary
+    _clear_asset_dirs(filepath)
 
     doc = PdfDocument()
     doc.LoadFromFile(filepath)
@@ -197,7 +296,7 @@ def ingest_pdf(filepath, vectorstore, skip_pages=0):
             df.to_pickle(pickleTableName)
             # Also embed the table's cell values as searchable text so queries
             # matching table content retrieve this page.
-            storetableembedding(table_to_text(df), vectorstore, filepath, i)
+            storetableembedding(table_to_text(df), vectorstore, filepath, i, doc_hash=doc_hash)
             summary["tables"] += 1
             j = j + 1
 
@@ -215,7 +314,7 @@ def ingest_pdf(filepath, vectorstore, skip_pages=0):
 
         text = output[i].get("text")
         text_chunks = get_text_chunks(text)
-        storetextembedding(text_chunks, vectorstore, filepath, i, hasImage, hasTable)
+        storetextembedding(text_chunks, vectorstore, filepath, i, hasImage, hasTable, doc_hash=doc_hash)
 
     doc.Close()
     tableDoc.close()
@@ -266,12 +365,22 @@ def ingest_pptx(filepath, vectorstore, skip_pages=0):
 
     Does NOT reset the collection (safe for incremental add). Returns a dict
     summary: slides processed, tables, images.
+
+    Re-embed is an UPSERT keyed by a content hash (see ingest_pdf): identical
+    bytes are a no-op; changed content replaces old chunks + stale assets.
     """
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
 
     gc.collect()
-    summary = {"pages": 0, "tables": 0, "images": 0}
+    summary = {"pages": 0, "tables": 0, "images": 0, "skipped": False}
+
+    # Upsert pre-step: skip if unchanged, else clear old chunks + stale assets.
+    doc_hash, skip = _prepare_upsert(vectorstore, filepath)
+    if skip:
+        summary["skipped"] = True
+        return summary
+    _clear_asset_dirs(filepath)
 
     prs = Presentation(filepath)
     imageDir = getdirname(filepath)
@@ -297,7 +406,7 @@ def ingest_pptx(filepath, vectorstore, skip_pages=0):
             if not os.path.exists(pathToStoreTable):
                 os.makedirs(pathToStoreTable)
             df.to_pickle(os.path.join(pathToStoreTable, "table" + str(t_idx) + ".pkl"))
-            storetableembedding(table_to_text(df), vectorstore, filepath, i)
+            storetableembedding(table_to_text(df), vectorstore, filepath, i, doc_hash=doc_hash)
             summary["tables"] += 1
             t_idx += 1
 
@@ -332,7 +441,7 @@ def ingest_pptx(filepath, vectorstore, skip_pages=0):
         # Slide text (titles, bullets, text boxes, notes).
         text = _pptx_slide_text(slide)
         text_chunks = get_text_chunks(text) if text.strip() else []
-        storetextembedding(text_chunks, vectorstore, filepath, i, hasImage, hasTable)
+        storetextembedding(text_chunks, vectorstore, filepath, i, hasImage, hasTable, doc_hash=doc_hash)
 
     return summary
 

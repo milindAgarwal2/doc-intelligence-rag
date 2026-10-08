@@ -128,10 +128,10 @@ def main():
         already = dest in docs
 
         if already:
-            st.warning(
-                f"'{uploaded.name}' appears to be already embedded. "
-                "Embedding again will add its chunks a second time. "
-                "Delete it first if you want a clean re-embed."
+            st.info(
+                f"'{uploaded.name}' is already embedded. Re-embedding is now a "
+                "safe **upsert**: identical content is skipped, and changed "
+                "content replaces the old chunks (no duplicates)."
             )
 
         if st.button(f"Embed '{uploaded.name}'", type="primary"):
@@ -142,10 +142,16 @@ def main():
             try:
                 with st.spinner(f"Embedding '{uploaded.name}'… this may take a while."):
                     summary = ingest_file(dest, vectorstore, skip_pages=_skip_pages())
-                st.success(
-                    f"Embedded '{uploaded.name}': {summary['pages']} pages/slides, "
-                    f"{summary['tables']} tables, {summary['images']} images extracted."
-                )
+                if summary.get("skipped"):
+                    st.info(
+                        f"'{uploaded.name}' already embedded with identical content "
+                        "— nothing to do (no duplicate chunks added)."
+                    )
+                else:
+                    st.success(
+                        f"Embedded '{uploaded.name}': {summary['pages']} pages/slides, "
+                        f"{summary['tables']} tables, {summary['images']} images extracted."
+                    )
                 # Refresh the cached store/list so the new doc appears.
                 st.rerun()
             except Exception as ex:

@@ -1,0 +1,107 @@
+ChatBOT — Feature Wishlist
+==========================
+Overlap between reviewer feedback (session 2026-10-07) and our earlier
+professional-polish roadmap. These 8 items appeared on BOTH lists.
+Ranked by importance to the tool (correctness > security/cost > trust >
+provability > deployment > observability > answer-quality tweak > polish).
+
+Match type legend: DIRECT = same item on both lists; PARTIAL = overlapping
+intent, differing scope.
+
+
+1. STOP RE-EMBED DUPLICATES (hash ID + upsert)              [DIRECT]
+   -------------------------------------------------------------------
+   Problem: Re-embedding a file with the same name appends DUPLICATE
+   chunks (no delete-before-readd). Flagged as a known gap in both the
+   2026-10-05 and 2026-10-07 sessions.
+   Fix: Give each document a content-hash ID and upsert by that ID so a
+   re-upload REPLACES the old chunks instead of appending.
+   Why it matters: Correctness bug — duplicate chunks skew ranking and
+   inflate the store. A reviewer spots it immediately. Highest priority.
+   We already have delete_document() keyed by file_name to build on.
+
+
+2. AUTHENTICATION / PER-USER ACCESS                         [DIRECT]
+   -------------------------------------------------------------------
+   Our earlier note: "authentication (open port = open Claude spend)."
+   Fix: Streamlit auth or an OIDC proxy; per-user access to documents.
+   Why it matters: An open Streamlit port lets anyone burn your Claude
+   API spend. If the documents are internal Ericsson material, access
+   control is mandatory, not optional. Security + cost axis.
+
+
+3. CONFIDENCE SIGNAL (low-relevance threshold)              [DIRECT]
+   -------------------------------------------------------------------
+   Our earlier note: "relevance score threshold on MMR."
+   Fix: If the best relevance score falls below a threshold, show
+   "Low confidence: limited matching content found" instead of a
+   confident answer.
+   Why it matters: Directly affects trust — without it the bot answers
+   confidently even when retrieval found nothing relevant. We already
+   compute MMR scores, so it is cheap to add.
+
+
+4. EVALUATION HARNESS                                       [PARTIAL]
+   -------------------------------------------------------------------
+   Our earlier note: "pytest suite" (narrower — unit tests). Reviewer
+   means a RAG eval harness.
+   Fix: Keep 50-100 reference questions with expected pages; measure
+   retrieval recall@k and answer faithfulness; run on every change to
+   chunking, models, or prompts.
+   Why it matters: This is how you PROVE the tool works and prevent
+   regressions. Seed questions already exist in our notes (Pico
+   dormant-mode current p17, spectrum table p1, etc.).
+
+
+5. DOCKER COMPOSE DEPLOYMENT + HEALTH ENDPOINT              [DIRECT]
+   -------------------------------------------------------------------
+   Our earlier note: "Dockerfile."
+   Fix: Docker Compose deployment with a health endpoint; serve assets
+   as static files instead of base64 (inlining large PDFs bloats the
+   Streamlit session).
+   Why it matters: Reproducible deployment; makes it a real tool rather
+   than a script. Downstream of the correctness/security fixes above.
+
+
+6. OBSERVABILITY / LOGGING                                  [PARTIAL]
+   -------------------------------------------------------------------
+   Our earlier note: "logging module instead of print()" (narrower —
+   app logging). Reviewer means full tracing.
+   Fix: Log every query, retrieved chunks, latency, token cost, and
+   engine used (Langfuse or OpenTelemetry); add a small admin dashboard.
+   Why it matters: Operability and cost visibility. A layer you add once
+   the core is solid.
+
+
+7. CLEAN UP SDK / TEMPERATURE NOTE                          [DIRECT]
+   -------------------------------------------------------------------
+   Context: We WROTE the "do not re-add temperature" note because the
+   anthropic SDK is pinned at 1.11.0 (its messages.create has no
+   temperature arg). Reviewer wants this reversed.
+   Fix: Pin a current anthropic version and set temperature low (~0 to
+   0.2) for grounded answers.
+   Why it matters: Improves answer determinism and removes a note that
+   reads as a workaround. Smaller, contained change. NEEDS SIGN-OFF
+   since we pinned 1.11.0 deliberately.
+
+
+8. PERSISTENT CHAT HISTORY / UX POLISH                      [PARTIAL]
+   -------------------------------------------------------------------
+   Our earlier note: "per-message metadata, better empty state, PDF
+   font fix, accessibility." Reviewer frames it as named persistent
+   sessions + Markdown/DOCX export alongside PDF export.
+   Fix: Persistent chat history with named sessions; export to Markdown
+   or DOCX.
+   Why it matters: Genuine polish that raises perceived professionalism.
+   No correctness or security impact — lowest of the eight.
+
+
+SUMMARY
+=======
+Split: 5 DIRECT (items 1, 2, 3, 5, 7) + 3 PARTIAL (items 4, 6, 8) = 8.
+Ranking logic: correctness (1) -> security/cost (2) -> trust (3) ->
+provability (4) -> deployment (5) -> observability (6) ->
+answer-quality tweak (7) -> polish (8).
+
+Recommended starting point: item #1 (hash-ID upsert) — top-ranked and a
+confirmed bug in our own notes.
