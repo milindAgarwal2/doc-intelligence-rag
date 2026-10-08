@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# Runs the WHOLE application as two services built from the same image:
+#   chatbot  -> chat UI            http://localhost:8501
+#   gui      -> Embedding Manager  http://localhost:8502
+#
+# They SHARE runtime data through the volume mounts below, so a document you
+# upload/embed in the GUI is immediately queryable in the chatbot. Data lives
+# on the host (bind mounts), so it persists across `docker compose down/up`.
+#
+# Usage:
+#   docker compose up --build          # build once, start both services
+#   docker compose up -d --build       # same, detached
+#   docker compose down                # stop both (data on host is kept)
+# ---------------------------------------------------------------------------
+
+services:
+  chatbot:
+    build: .
+    image: techdoc-rag:latest           # built once, reused by the gui service
+    container_name: techdoc-chatbot
+    command: >
+      streamlit run chatBOT_engine.py
+      --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env                            # ANTHROPIC_API_KEY, SKIP_PAGES, etc.
+    volumes:
+      - ./chroma_Name:/app/chroma_Name  # vector store (shared)
+      - ./pdf:/app/pdf                  # source PDFs + extracted images (shared)
+      - ./pptx:/app/pptx                # source decks (shared)
+      - ./table:/app/table              # extracted tables (shared)
+      - ./config.json:/app/config.json  # answer engine + threshold (shared)
+      - ./models:/app/models            # optional Qwen GGUF (shared, read-only use)
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s                 # allow first-run ONNX model download
+    restart: unless-stopped
+
+  gui:
+    build: .
+    image: techdoc-rag:latest
+    container_name: techdoc-gui
+    depends_on:
+      - chatbot                         # ensures the image is built once first
+    command: >
+      streamlit run embeddingGUI.py
+      --server.port=8502 --server.address=0.0.0.0
+    ports:
+      - "8502:8502"
+    env_file:
+      - .env
+    volumes:
+      - ./chroma_Name:/app/chroma_Name  # SAME mounts as chatbot -> shared state
+      - ./pdf:/app/pdf
+      - ./pptx:/app/pptx
+      - ./table:/app/table
+      - ./config.json:/app/config.json
+      - ./models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8502/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped

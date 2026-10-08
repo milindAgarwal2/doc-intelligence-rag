@@ -411,6 +411,86 @@ deactivate 2>/dev/null; rm -rf .venv
 
 ---
 
+## Docker deployment
+
+The **whole application** (chatbot **and** the Embedding Manager GUI) ships as a
+single image. `docker-compose.yml` runs it as two services from that one image,
+sharing all runtime data (vector store, extracted assets, uploads, config, Qwen
+model) through host-mounted volumes — so a document embedded in the GUI is
+immediately queryable in the chatbot, and everything persists across restarts.
+
+| Service | URL | Container |
+|---|---|---|
+| Chatbot | http://localhost:8501 | `techdoc-chatbot` |
+| Embedding Manager GUI | http://localhost:8502 | `techdoc-gui` |
+
+### With Docker Compose (recommended)
+
+```bash
+cp .env.example .env          # add ANTHROPIC_API_KEY (only needed for the Claude engine)
+
+docker compose up --build     # build once, start BOTH services
+# or detached:
+docker compose up -d --build
+
+docker compose ps             # see status + health
+docker compose logs -f chatbot
+docker compose down           # stop both (host data is kept)
+```
+
+> The host folders `chroma_Name/`, `pdf/`, `pptx/`, `table/`, `models/` and the file
+> `config.json` are bind-mounted into **both** containers. Put source documents in
+> `pdf/`/`pptx/` on the host (or upload via the GUI) and build the store with the GUI
+> or `docker compose run --rm chatbot python embeddingEngine.py`.
+
+### Without Compose (plain Docker)
+
+If the Compose plugin isn't installed, build once and run the two containers
+manually (same image, different launch command and port):
+
+```bash
+docker build -t techdoc-rag:latest .
+
+# Chatbot (8501)
+docker run -d --name techdoc-chatbot --env-file .env -p 8501:8501 \
+  -v "$PWD/chroma_Name:/app/chroma_Name" -v "$PWD/pdf:/app/pdf" \
+  -v "$PWD/pptx:/app/pptx" -v "$PWD/table:/app/table" \
+  -v "$PWD/config.json:/app/config.json" -v "$PWD/models:/app/models" \
+  techdoc-rag:latest
+
+# Embedding Manager GUI (8502)
+docker run -d --name techdoc-gui --env-file .env -p 8502:8502 \
+  -v "$PWD/chroma_Name:/app/chroma_Name" -v "$PWD/pdf:/app/pdf" \
+  -v "$PWD/pptx:/app/pptx" -v "$PWD/table:/app/table" \
+  -v "$PWD/config.json:/app/config.json" -v "$PWD/models:/app/models" \
+  techdoc-rag:latest \
+  streamlit run embeddingGUI.py --server.port=8502 --server.address=0.0.0.0
+```
+
+### Health checks
+
+Both services expose Streamlit's native health endpoint; Compose uses it for
+container health:
+
+```bash
+curl -s -o /dev/null -w "chatbot:%{http_code}\n" http://localhost:8501/_stcore/health
+curl -s -o /dev/null -w "gui:%{http_code}\n"     http://localhost:8502/_stcore/health
+# both → 200
+```
+
+### Notes
+
+- **First start** downloads the `bge-small-en-v1.5` ONNX model (~130 MB) inside the
+  container; the healthcheck `start_period` allows for this.
+- **Qwen engine (optional):** the ~1 GB GGUF is **not** baked into the image — place
+  it in the host `models/` folder (mounted into both containers) and select Qwen in
+  the GUI. The build already compiles `llama-cpp-python`.
+- **Secrets:** `ANTHROPIC_API_KEY` is passed via `--env-file .env` / Compose
+  `env_file`, never baked into the image.
+- **Image size** is ~2 GB (PyMuPDF + ONNX runtime + compiled llama.cpp).
+
+---
+
 ## Production Notes
 
 For anything beyond local/dev use:
@@ -418,8 +498,11 @@ For anything beyond local/dev use:
 - **Split hosts:** run ingestion (needs `Spire.PDF`, `PyMuPDF`, `pymupdf4llm`) on
   one host, then copy `chroma_Name/`, `pdf/`, and `table/` to a slimmer serving
   host. Both hosts **must use the same embedding model** (`BAAI/bge-small-en-v1.5`).
-- **Reverse proxy + TLS:** front Streamlit (8501) and the static server (8000)
-  with nginx/Caddy; terminate TLS there.
+- **Reverse proxy + TLS:** front Streamlit (chatbot 8501, GUI 8502) with
+  nginx/Caddy; terminate TLS there. (Images/tables/PDF links are inlined into the
+  page, so there is no separate static-asset server to proxy.)
+- **Containerized:** see [Docker deployment](#docker-deployment) — the whole app
+  (chatbot + GUI) runs from one image via `docker compose`, with health checks.
 - **Auth:** put SSO/auth in front of the UI via the reverse proxy.
 - **Process supervision:** run the app under systemd/supervisord/containers.
 - **Secrets:** store `ANTHROPIC_API_KEY` in a secrets manager, not plaintext `.env`.

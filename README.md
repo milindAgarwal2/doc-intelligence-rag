@@ -185,6 +185,20 @@ Open **http://localhost:8501**.
 > shown as a plain filename label instead of an inline download link to keep the
 > page lightweight.
 
+### Docker (whole app in containers)
+
+The entire application — chatbot **and** Embedding Manager GUI — runs from one
+image as two services that share all runtime data via volumes:
+
+```bash
+cp .env.example .env            # add ANTHROPIC_API_KEY (Claude engine only)
+docker compose up --build       # chatbot → :8501, GUI → :8502
+```
+
+Both expose a health endpoint (`/_stcore/health`). See
+[INSTALL.md → Docker deployment](INSTALL.md#docker-deployment) for the plain-`docker`
+fallback, volume layout, and the optional Qwen model mount.
+
 ---
 
 ## Embedding Manager GUI

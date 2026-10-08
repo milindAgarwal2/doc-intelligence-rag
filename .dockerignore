@@ -1,0 +1,41 @@
+# Keep the build context small and never bake secrets/large data into the image.
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtualenv (we build a fresh one inside the image)
+.venv/
+
+# Generated / runtime data — provided at runtime via mounted volumes, not baked in
+chroma_Name/
+table/
+*.pkl
+
+# Large model weights (mounted at runtime; ~1 GB)
+models/
+*.gguf
+
+# Extracted asset subfolders under pdf/ and pptx/ (regenerated at runtime)
+pdf/**/
+pptx/**/
+
+# Source documents are large; mount them at runtime instead of baking them in.
+pdf/*.pdf
+pptx/*.pptx
+pptx/*.ppt
+
+# Chat exports / scratch JSON
+chatbot*.json
+10072026.json
+
+# Dev tooling / docs not needed at runtime
+.kiro/
+screen/
+sample_manual_assets/
+.git/
+*.md
+*:Zone.Identifier
