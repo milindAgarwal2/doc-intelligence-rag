@@ -11,6 +11,7 @@ Run with:
     streamlit run embeddingGUI.py
 """
 
+import logging
 import os
 
 import streamlit as st
@@ -24,6 +25,10 @@ from embeddingEngine import (
     getdirname,
 )
 from config import load_config, save_config, VALID_PROVIDERS
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger("embeddingGUI")
 
 PDF_DIR = "pdf"
 PPTX_DIR = "pptx"
@@ -168,6 +173,11 @@ def main():
             try:
                 with st.spinner(f"Embedding '{uploaded.name}'… this may take a while."):
                     summary = ingest_file(dest, vectorstore, skip_pages=_skip_pages())
+                logger.info(
+                    "GUI embed '%s' | pages=%s tables=%s images=%s skipped=%s",
+                    uploaded.name, summary.get("pages"), summary.get("tables"),
+                    summary.get("images"), summary.get("skipped"),
+                )
                 if summary.get("skipped"):
                     st.info(
                         f"'{uploaded.name}' already embedded with identical content "
@@ -181,8 +191,7 @@ def main():
                 # Refresh the cached store/list so the new doc appears.
                 st.rerun()
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
+                logger.exception("failed to embed '%s'", uploaded.name)
                 st.error(f"Failed to embed '{uploaded.name}': {type(ex).__name__}: {ex}")
 
     st.divider()
@@ -221,8 +230,7 @@ def main():
                     st.error(result["error"])
                 st.rerun()
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
+                logger.exception("failed to delete '%s'", choice)
                 st.error(f"Failed to delete '{choice}': {type(ex).__name__}: {ex}")
 
 

@@ -2,6 +2,8 @@ import base64
 import glob
 import html as _html
 import io
+import logging
+import time
 import os
 import re
 from datetime import datetime
@@ -17,6 +19,10 @@ from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
 from config import load_config, VALID_PROVIDERS, get_low_confidence_threshold
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger("chatBOT_engine")
 
 # Reads ANTHROPIC_API_KEY from the environment (.env) - never hardcode it here.
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
@@ -84,7 +90,7 @@ def confidence_probe(user_question):
             user_question, k=1
         )
     except Exception as ex:
-        print("confidence_probe failed:", ex)
+        logger.warning("confidence_probe failed: %s", ex)
         return None
     if not scored:
         return None
@@ -129,7 +135,7 @@ def _image_to_data_uri(filepath, max_dim=1200, jpeg_quality=80):
             b64 = base64.b64encode(buf.getvalue()).decode()
         return f"data:{mime};base64,{b64}"
     except Exception as ex:
-        print("Could not process image", filepath, ex)
+        logger.warning("could not process image %s: %s", filepath, ex)
         return ""
 
 
@@ -319,7 +325,7 @@ def resolve_provider(requested):
     if provider_available(requested):
         return requested
     if requested != "none":
-        print(f"[provider] '{requested}' unavailable; falling back to extractive.")
+        logger.warning("provider '%s' unavailable; falling back to extractive", requested)
     return "none"
 
 
@@ -431,7 +437,7 @@ def _complete(system_prompt, user_prompt, provider, max_tokens=256):
             )
             return out["choices"][0]["message"]["content"].strip()
     except Exception as ex:  # pragma: no cover
-        print(f"[aux-complete] {provider} failed: {type(ex).__name__}: {ex}")
+        logger.warning("aux-complete via %s failed: %s", provider, ex, exc_info=True)
     return ""
 
 
@@ -705,6 +711,7 @@ def answer_question(user_question, include_image, include_table, provider, histo
     suggested follow-up questions are produced. The provider is transparent.
     """
     history = history or []
+    _t_start = time.monotonic()
 
     # Conversational memory: resolve pronouns/references in a follow-up into a
     # standalone query BEFORE retrieval, using recent history. Answering still
@@ -795,6 +802,25 @@ def answer_question(user_question, include_image, include_table, provider, histo
         "followups": followups,
         "low_confidence": low_confidence,
     }
+
+    # Observability (#6): one structured line per answered question. Captures
+    # the signals you need to understand usage without logging answer content —
+    # provider used, retrieval breadth, best relevance score, whether it was a
+    # grounded refusal, low-confidence flag, source count, and latency.
+    logger.info(
+        "query handled | provider=%s rewritten=%s docs=%d best_score=%s "
+        "low_conf=%s refusal=%s sources=%d followups=%d latency_ms=%d | q=%r",
+        provider,
+        search_query != user_question,
+        len(docs),
+        f"{best_score:.3f}" if best_score is not None else "n/a",
+        low_confidence,
+        _is_refusal(answer_text),
+        len(sources),
+        len(followups),
+        int((time.monotonic() - _t_start) * 1000),
+        user_question[:120],
+    )
     return turn
 
 

@@ -1,6 +1,7 @@
 import gc
 import glob
 import hashlib
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -14,6 +15,11 @@ from spire.pdf import *
 import pymupdf4llm
 import fitz
 import pandas as pd
+
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger("embeddingEngine")
 
 
 def get_pdf_text(pdf_docs):
@@ -540,11 +546,16 @@ def main():
         + glob.glob(os.path.join("pptx", "*.ppt"))
     )
     for filepath in source_files:
-        print(filepath)
+        logger.info("ingesting %s", filepath)
         try:
-            ingest_file(filepath, vectorstore, skip_pages=skip_pages)
+            summary = ingest_file(filepath, vectorstore, skip_pages=skip_pages)
+            logger.info(
+                "ingested %s | pages=%s tables=%s images=%s skipped=%s",
+                filepath, summary.get("pages"), summary.get("tables"),
+                summary.get("images"), summary.get("skipped"),
+            )
         except ValueError as ex:
-            print("  skipped:", ex)
+            logger.warning("skipped %s: %s", filepath, ex)
 
 
 if __name__ == '__main__':

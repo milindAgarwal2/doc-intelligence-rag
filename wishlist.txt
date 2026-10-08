@@ -13,7 +13,11 @@ PROGRESS (as of session 2026-10-07):
   [DONE] #3 Low-confidence banner (threshold in config.json, default 0.63)
   [DONE] #4 Evaluation harness (tests/eval: recall@k + calibration)
   [DONE] #5 Docker (Dockerfile + docker-compose: chatbot :8501 + GUI :8502)
-  [TODO] #2 Authentication, #6 Observability, #7 SDK/temperature, #8 UX
+  [DONE] #6 Observability — structured logging (logging_config.py; print()->logging;
+             per-query structured log line; LOG_LEVEL/LOG_FILE env). NOTE: this is
+             the LIGHTWEIGHT half; full tracing/dashboard split out as #9 (deferred).
+  [TODO] #2 Authentication, #7 SDK/temperature, #8 UX
+  [DEFERRED] #9 Full tracing + admin dashboard (see below)
 
 
 1. STOP RE-EMBED DUPLICATES (hash ID + upsert)              [DIRECT]
@@ -112,3 +116,31 @@ answer-quality tweak (7) -> polish (8).
 
 Recommended starting point: item #1 (hash-ID upsert) — top-ranked and a
 confirmed bug in our own notes.
+
+
+ADDED ITEMS (beyond the original 8)
+===================================
+
+9. FULL TRACING + ADMIN DASHBOARD                          [DEFERRED]
+   -------------------------------------------------------------------
+   Split out from #6. #6 delivered the LIGHTWEIGHT half (structured
+   stdlib logging + a per-query log line). This item is the HEAVY half.
+   Scope: distributed tracing of each query (retrieved chunks, prompt,
+   answer, latency, token cost, engine) via Langfuse or OpenTelemetry,
+   plus a small admin dashboard for usage/cost analytics.
+   Why DEFERRED (not TODO): the per-query log line already answers the
+   questions at the current footprint (single/few users, modest Claude
+   spend readable from the Anthropic console, two Streamlit processes —
+   not a distributed system). A tracing stack adds real infra/deps and,
+   for Langfuse-hosted, sends data off-box — a concern for internal
+   material. It would be over-engineering now.
+   REVISIT WHEN any of:
+     - multiple real users needing per-user usage/cost attribution
+     - Claude spend material enough to track/optimize tokens per query
+     - debugging answer quality at scale (inspect exact chunks+prompt+
+       answer for specific past queries — Langfuse trace view shines here)
+     - an SLA/ops team needs live dashboards + alerting
+   CHEAP MIDDLE GROUND (if wanted before full stack): append the
+   per-query log as JSONL (LOG_FILE already supports a file), then do
+   ad-hoc analytics by loading it into pandas on demand — zero new infra.
+

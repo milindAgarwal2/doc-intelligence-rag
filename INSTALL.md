@@ -157,7 +157,18 @@ ANTHROPIC_API_KEY=sk-ant-...your-key...
 # ANTHROPIC_MODEL=claude-sonnet-5
 # Optional: path to the local Qwen GGUF (only for the "Qwen" answer engine)
 # QWEN_GGUF_PATH=models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+# Optional: logging
+# LOG_LEVEL=INFO      # DEBUG/INFO/WARNING/ERROR (default INFO)
+# LOG_FILE=app.log    # also append logs to this file (default: console/stderr only)
 ```
+
+> 📋 **Logging/observability.** The app uses Python's `logging` (configured once in
+> `logging_config.py`). It emits one **structured line per answered question** —
+> provider, retrieval breadth, best relevance score, low-confidence/refusal flags,
+> source count, and latency — plus warnings on provider fallback and ingest/asset
+> errors. Logs go to **stderr** (so `docker compose logs -f` shows them); set
+> `LOG_FILE` to also persist them. The evaluation harness prints its report to
+> stdout and is intentionally separate from logging.
 
 > 🔐 `.env` is git-ignored and holds **only secrets** (the API key). **Never commit
 > your API key** or hardcode it in source.
