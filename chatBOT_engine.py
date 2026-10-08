@@ -18,7 +18,10 @@ load_dotenv()
 from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
-from config import load_config, VALID_PROVIDERS, get_low_confidence_threshold
+from config import (
+    load_config, VALID_PROVIDERS, get_low_confidence_threshold,
+    get_chatbot_config,
+)
 from logging_config import setup_logging
 
 setup_logging()
@@ -979,11 +982,11 @@ def main():
     )
     _init_state()
 
-    st.title("📚 Technical Document Assistant")
-    st.caption(
-        "Ask questions about your indexed PDFs. Answers are synthesized from the "
-        "documents with inline source citations."
-    )
+    ui = get_chatbot_config()
+
+    st.title(ui["chatbot_title"])
+    if ui["chatbot_subtitle"].strip():
+        st.caption(ui["chatbot_subtitle"])
 
     # One-time heads-up when the local Qwen SLM is the active engine: it runs on
     # CPU and is noticeably slower than the cloud model, so set expectations.
@@ -995,15 +998,28 @@ def main():
             "streams in as it's generated."
         )
 
-    # Sidebar: answer options + export + reset.
+    # Sidebar: answer options + export + reset. Figure/table options can be
+    # hidden entirely per config (clients with no images/tables); when hidden the
+    # feature defaults OFF.
     with st.sidebar:
-        st.subheader("Answer options")
-        include_image = st.checkbox("Include figures from cited pages", value=False)
-        include_table = st.checkbox("Include tables from cited pages", value=False)
+        show_fig = ui["chatbot_show_figures_option"]
+        show_tbl = ui["chatbot_show_tables_option"]
 
-        st.divider()
-        st.subheader("Conversation")
-        if st.button("🗑️ Clear chat", use_container_width=True):
+        if show_fig or show_tbl:
+            st.subheader(ui["chatbot_answer_options_label"])
+        include_image = (
+            st.checkbox(ui["chatbot_include_figures_label"], value=False)
+            if show_fig else False
+        )
+        include_table = (
+            st.checkbox(ui["chatbot_include_tables_label"], value=False)
+            if show_tbl else False
+        )
+
+        if show_fig or show_tbl:
+            st.divider()
+        st.subheader(ui["chatbot_conversation_label"])
+        if st.button(ui["chatbot_clear_chat_label"], use_container_width=True):
             st.session_state.messages = []
             st.rerun()
 
@@ -1029,7 +1045,7 @@ def main():
 
     # Chat input (bottom-docked) — the default entry point. A clicked follow-up
     # suggestion arrives via pending_prompt and is treated like a typed question.
-    typed = st.chat_input("Ask a question about your documents…")
+    typed = st.chat_input(ui["chatbot_input_placeholder"])
     prompt = st.session_state.pop("pending_prompt", None) or typed
     if prompt:
         # History BEFORE this turn (for follow-up query rewriting).

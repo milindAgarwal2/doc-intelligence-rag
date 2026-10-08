@@ -49,6 +49,23 @@ DEFAULTS = {
     "widget_title": "📚 Document Assistant",
     "widget_input_placeholder": "Ask about the documents…",
     "widget_accent_color": "#2e7d32",
+    # Streamlit chatbot UI (read once per session). Labels + visibility toggles
+    # so deployments can rebrand and hide options a given client doesn't need.
+    "chatbot_title": "📚 Technical Document Assistant",
+    "chatbot_subtitle": (
+        "Ask questions about your indexed PDFs. Answers are synthesized from "
+        "the documents with inline source citations."
+    ),
+    "chatbot_input_placeholder": "Ask a question about your documents…",
+    "chatbot_answer_options_label": "Answer options",
+    "chatbot_include_figures_label": "Include figures from cited pages",
+    "chatbot_include_tables_label": "Include tables from cited pages",
+    "chatbot_conversation_label": "Conversation",
+    "chatbot_clear_chat_label": "🗑️ Clear chat",
+    # Visibility toggles: hide the figure/table options entirely for clients
+    # whose documents have no images/tables. When hidden the feature is OFF.
+    "chatbot_show_figures_option": True,
+    "chatbot_show_tables_option": True,
 }
 
 
@@ -106,6 +123,30 @@ def _normalize_widget_appearance(cfg):
         cfg["widget_accent_color"] = color.strip()
 
 
+# Chatbot string keys: non-empty strings expected, else fall back to default.
+_CHATBOT_STR_KEYS = (
+    "chatbot_title", "chatbot_subtitle", "chatbot_input_placeholder",
+    "chatbot_answer_options_label", "chatbot_include_figures_label",
+    "chatbot_include_tables_label", "chatbot_conversation_label",
+    "chatbot_clear_chat_label",
+)
+_CHATBOT_BOOL_KEYS = ("chatbot_show_figures_option", "chatbot_show_tables_option")
+
+
+def _normalize_chatbot(cfg):
+    """Validate chatbot UI keys in-place. Strings: non-empty else default (except
+    subtitle, which MAY be empty to hide it). Booleans: coerced to real bools."""
+    for key in _CHATBOT_STR_KEYS:
+        v = cfg.get(key)
+        if not isinstance(v, str):
+            cfg[key] = DEFAULTS[key]
+        elif not v.strip() and key != "chatbot_subtitle":
+            # subtitle is allowed to be "" (hidden); others fall back if blank.
+            cfg[key] = DEFAULTS[key]
+    for key in _CHATBOT_BOOL_KEYS:
+        cfg[key] = bool(cfg.get(key, DEFAULTS[key]))
+
+
 def load_config():
     """Return the config dict, merged over defaults. Never raises: a missing or
     malformed file yields the defaults so the app always runs.
@@ -134,6 +175,7 @@ def load_config():
     if not isinstance(cfg.get("widget_welcome_message"), str):
         cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
     _normalize_widget_appearance(cfg)
+    _normalize_chatbot(cfg)
     return cfg
 
 
@@ -158,6 +200,7 @@ def save_config(updates):
     if not isinstance(cfg.get("widget_welcome_message"), str):
         cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
     _normalize_widget_appearance(cfg)
+    _normalize_chatbot(cfg)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
@@ -198,3 +241,9 @@ def get_widget_config():
         "input_placeholder": cfg["widget_input_placeholder"],
         "accent_color": cfg["widget_accent_color"],
     }
+
+
+def get_chatbot_config():
+    """Return the Streamlit chatbot UI settings (labels + visibility toggles)."""
+    cfg = load_config()
+    return {k: cfg[k] for k in (_CHATBOT_STR_KEYS + _CHATBOT_BOOL_KEYS)}

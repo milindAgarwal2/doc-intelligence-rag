@@ -313,6 +313,15 @@ The widget reads these from `GET /api/health` when it loads, so changes apply on
 next widget load. The accent color is validated server-side (must be a valid
 `#hex`/`rgb()`/`hsl()`/named color) to prevent injection.
 
+### Configuring the Streamlit chatbot UI
+
+The standalone chatbot's **title**, **subtitle**, **input placeholder**, and sidebar
+**labels** are configurable in `config.json` (editable from the Admin Console
+**🤖 Chatbot** tab). You can also **hide the figures/tables answer options entirely**
+(`chatbot_show_figures_option` / `chatbot_show_tables_option`) for deployments whose
+documents have no images or tables — when hidden the feature is simply off. The
+chatbot reads these once per session (refresh the chatbot tab to apply).
+
 ---
 
 ## Embedding Manager GUI

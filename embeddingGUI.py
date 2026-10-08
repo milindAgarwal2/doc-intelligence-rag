@@ -263,6 +263,86 @@ def _tab_logging(cfg):
                    + (f", file '{new_file}'" if new_file else " (console only)") + ".")
 
 
+def _tab_chatbot(cfg):
+    """Streamlit chatbot UI settings: labels, placeholder, and which answer
+    options to show. Separate from the embeddable-widget settings."""
+    st.subheader("Chatbot UI")
+    st.caption(
+        "Branding and labels for the standalone Streamlit chatbot. Also lets you "
+        "hide the figures/tables options for clients whose documents have none. "
+        "Saved to config.json; the chatbot reads it once per session (refresh the "
+        "chatbot tab to apply)."
+    )
+    with st.form("chatbot_form"):
+        st.markdown("**Header**")
+        new_title = st.text_input("Title", value=cfg.get("chatbot_title", ""))
+        new_subtitle = st.text_area(
+            "Subtitle / caption", value=cfg.get("chatbot_subtitle", ""), height=70,
+            help="Shown under the title. Leave blank to hide the subtitle.",
+        )
+        new_placeholder = st.text_input(
+            "Chat input placeholder",
+            value=cfg.get("chatbot_input_placeholder", ""),
+        )
+
+        st.markdown("**Answer options (sidebar)**")
+        c1, c2 = st.columns(2)
+        with c1:
+            show_fig = st.checkbox(
+                "Show the 'figures' option",
+                value=bool(cfg.get("chatbot_show_figures_option", True)),
+                help="Uncheck for clients whose documents have no images.",
+            )
+            new_fig_label = st.text_input(
+                "Figures option label",
+                value=cfg.get("chatbot_include_figures_label", ""),
+            )
+        with c2:
+            show_tbl = st.checkbox(
+                "Show the 'tables' option",
+                value=bool(cfg.get("chatbot_show_tables_option", True)),
+                help="Uncheck for clients whose documents have no tables.",
+            )
+            new_tbl_label = st.text_input(
+                "Tables option label",
+                value=cfg.get("chatbot_include_tables_label", ""),
+            )
+        new_answer_label = st.text_input(
+            "Answer-options section label",
+            value=cfg.get("chatbot_answer_options_label", ""),
+        )
+
+        st.markdown("**Conversation (sidebar)**")
+        d1, d2 = st.columns(2)
+        with d1:
+            new_conv_label = st.text_input(
+                "Conversation section label",
+                value=cfg.get("chatbot_conversation_label", ""),
+            )
+        with d2:
+            new_clear_label = st.text_input(
+                "Clear-chat button label",
+                value=cfg.get("chatbot_clear_chat_label", ""),
+            )
+
+        submitted = st.form_submit_button("Save chatbot settings", type="primary")
+
+    if submitted:
+        save_config({
+            "chatbot_title": new_title,
+            "chatbot_subtitle": new_subtitle,
+            "chatbot_input_placeholder": new_placeholder,
+            "chatbot_show_figures_option": show_fig,
+            "chatbot_show_tables_option": show_tbl,
+            "chatbot_include_figures_label": new_fig_label,
+            "chatbot_include_tables_label": new_tbl_label,
+            "chatbot_answer_options_label": new_answer_label,
+            "chatbot_conversation_label": new_conv_label,
+            "chatbot_clear_chat_label": new_clear_label,
+        })
+        st.success("Chatbot settings saved. Refresh the chatbot tab to apply.")
+
+
 def main():
     load_dotenv()
     st.set_page_config(page_title="Document Assistant Admin",
@@ -286,13 +366,15 @@ def main():
     docs = list_embedded_documents(vectorstore)
     chunk_count = _count_chunks(vectorstore)
 
-    tab_docs, tab_engine, tab_widget, tab_logs = st.tabs(
-        ["📚 Documents", "⚙️ Answer engine", "💬 Chat widget", "🔧 Logging"]
+    tab_docs, tab_engine, tab_chatbot, tab_widget, tab_logs = st.tabs(
+        ["📚 Documents", "⚙️ Answer engine", "🤖 Chatbot", "💬 Chat widget", "🔧 Logging"]
     )
     with tab_docs:
         _tab_documents(vectorstore, docs, chunk_count)
     with tab_engine:
         _tab_engine(cfg)
+    with tab_chatbot:
+        _tab_chatbot(cfg)
     with tab_widget:
         _tab_widget(cfg)
     with tab_logs:

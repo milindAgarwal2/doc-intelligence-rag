@@ -6,5 +6,15 @@
   "widget_welcome_message": "Hi! Ask me a question about the indexed documents.",
   "widget_title": "📚 Document Assistant",
   "widget_input_placeholder": "Ask about the documents…",
-  "widget_accent_color": "#2e7d32"
+  "widget_accent_color": "#2e7d32",
+  "chatbot_title": "📚 Technical Document Assistant",
+  "chatbot_subtitle": "Ask questions about your indexed PDFs. Answers are synthesized from the documents with inline source citations.",
+  "chatbot_input_placeholder": "Ask a question about your documents…",
+  "chatbot_answer_options_label": "Answer options",
+  "chatbot_include_figures_label": "Include figures from cited pages",
+  "chatbot_include_tables_label": "Include tables from cited pages",
+  "chatbot_conversation_label": "Conversation",
+  "chatbot_clear_chat_label": "🗑️ Clear chat",
+  "chatbot_show_figures_option": true,
+  "chatbot_show_tables_option": true
 }
