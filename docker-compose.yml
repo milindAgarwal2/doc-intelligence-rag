@@ -67,3 +67,44 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+
+  api:
+    build: .
+    image: techdoc-rag:latest
+    container_name: techdoc-api
+    depends_on:
+      - chatbot
+    command: >
+      uvicorn api_server:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./chroma_Name:/app/chroma_Name  # SAME store the chatbot/GUI use
+      - ./pdf:/app/pdf
+      - ./pptx:/app/pptx
+      - ./table:/app/table
+      - ./config.json:/app/config.json
+      - ./models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  demo:
+    # Fake third-party website that embeds the widget via a <script> tag.
+    # Served on a DIFFERENT origin (:9000) than the API (:8000) to exercise CORS.
+    build: .
+    image: techdoc-rag:latest
+    container_name: techdoc-demo
+    depends_on:
+      - api
+    command: >
+      python -m http.server 9000 --directory demo-site
+    ports:
+      - "9000:9000"
+    restart: unless-stopped

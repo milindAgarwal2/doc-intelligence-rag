@@ -43,6 +43,10 @@ streamlit
 # Chat-to-PDF export (renders chat HTML, incl. images/tables, to a PDF)
 xhtml2pdf
 
+# Embeddable chat widget API (api_server.py) — FastAPI + ASGI server
+fastapi
+uvicorn
+
 # Utilities
 requests
 python-dotenv

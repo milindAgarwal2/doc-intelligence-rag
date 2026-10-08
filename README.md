@@ -209,6 +209,74 @@ Both expose a health endpoint (`/_stcore/health`). See
 [INSTALL.md → Docker deployment](INSTALL.md#docker-deployment) for the plain-`docker`
 fallback, volume layout, and the optional Qwen model mount.
 
+> `docker compose up` also starts the **widget API** (`:8000`) and a **demo site**
+> (`:9000`) — see [Embeddable chat widget](#embeddable-chat-widget) below.
+
+---
+
+## Embeddable chat widget
+
+Besides the standalone Streamlit chatbot, the same RAG backend is exposed as an
+**embeddable chat widget** that drops onto any website with a single `<script>` tag.
+It's a floating chat bubble (bottom-right) that opens a panel, talks to an HTTP API,
+and renders answers with **clickable source citations** and suggested follow-ups.
+
+Three pieces:
+
+| Piece | File(s) | What it is |
+|---|---|---|
+| **API** | `api_server.py` | FastAPI over the shared `generate_answer()` logic: `POST /api/chat`, `GET /api/health`, `GET /api/source/{name}` (serve a cited doc), plus the widget static files. |
+| **Widget** | `widget/widget.js`, `widget/widget.css` | Vanilla-JS floating bubble; no framework; embeds anywhere. |
+| **Demo site** | `demo-site/index.html` | A fake third-party website that embeds the widget to test cross-origin. |
+
+### Run it (Docker)
+
+`docker compose up --build` starts everything, including:
+- **Widget API** → http://localhost:8000 (`/api/health`, `/api/chat`)
+- **Demo site** → http://localhost:9000 (fake site with the widget embedded)
+
+Open **http://localhost:9000**, click the chat bubble, and ask a question — the
+answer comes from the RAG backend on `:8000` (a *different origin*, proving the
+cross-origin embed works).
+
+### Run it (without Docker)
+
+```bash
+# API (serves the widget + answers)
+.venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000
+# Fake site on a different origin (new terminal)
+.venv/bin/python -m http.server 9000 --directory demo-site
+# → open http://localhost:9000
+```
+
+### Putting the widget on a third-party website
+
+The site owner adds **one line** before `</body>`:
+
+```html
+<script src="https://YOUR_HOST/widget/widget.js"
+        data-api="https://YOUR_HOST/api"></script>
+```
+
+`data-api` points at your hosted API. For this to work from another domain, **your
+side** must be set up:
+
+- **Public, HTTPS API.** `localhost` only works on your own machine; a real embed
+  needs a public host with TLS (browsers block `https://` pages from calling an
+  `http://` API as mixed content). Put the API behind nginx/Caddy for TLS.
+- **CORS.** The API currently allows all origins (`allow_origins=["*"]`) — fine for
+  the demo. For production, restrict it to the domains you authorize.
+- **⚠️ Authentication / abuse control.** The API is currently **open and
+  unauthenticated** — anyone who knows the URL can call `/api/chat` (spending your
+  Claude budget) and `/api/source/...` (downloading your documents). This is fine for
+  a local demo but **must** be addressed before exposing it publicly, especially for
+  internal/confidential material — add an origin allowlist, an API key, and rate
+  limiting. (Tracked as the authentication wishlist item.)
+
+The `/api/source/{name}` endpoint only serves whitelisted document types
+(`.pdf`/`.pptx`/`.ppt`) by basename from the `pdf/`/`pptx/` folders, with
+path-traversal protection.
+
 ---
 
 ## Embedding Manager GUI

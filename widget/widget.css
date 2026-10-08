@@ -1,0 +1,174 @@
+/* Embeddable chat widget styles. Scoped under #tdrag-widget to avoid clashing
+   with the host page. */
+
+#tdrag-widget * { box-sizing: border-box; }
+
+#tdrag-launcher {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 2147483000;
+}
+#tdrag-launcher:hover { background: #276a2b; }
+
+#tdrag-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 360px;
+  max-width: calc(100vw - 40px);
+  height: 520px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  z-index: 2147483000;
+  font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  color: #111;
+}
+
+/* The [hidden] attribute's implicit display:none is overridden by the
+   display:flex above, so force it here — otherwise "minimize"/close can't
+   actually hide the panel. */
+#tdrag-panel[hidden] {
+  display: none !important;
+}
+
+#tdrag-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #2e7d32;
+  color: #fff;
+  font-weight: 600;
+}
+#tdrag-close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#tdrag-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  background: #f6f8f6;
+}
+
+.tdrag-msg {
+  margin: 6px 0;
+  padding: 8px 11px;
+  border-radius: 10px;
+  max-width: 90%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+.tdrag-user {
+  background: #2e7d32;
+  color: #fff;
+  margin-left: auto;
+  border-bottom-right-radius: 2px;
+}
+.tdrag-bot {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-bottom-left-radius: 2px;
+}
+
+.tdrag-lowconf {
+  background: #fff3cd;
+  border: 1px solid #ffe08a;
+  color: #7a5b00;
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.tdrag-answer { }
+.tdrag-sources {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #555;
+}
+.tdrag-source {
+  display: inline-block;
+  background: #eef3ee;
+  border: 1px solid #cfe0cf;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin: 2px 4px 0 0;
+  color: #2e7d32;
+  text-decoration: none;
+  cursor: pointer;
+}
+.tdrag-source:hover {
+  background: #2e7d32;
+  color: #fff;
+  text-decoration: underline;
+}
+.tdrag-error { color: #b00020; }
+
+.tdrag-followups {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tdrag-followup {
+  text-align: left;
+  background: #fff;
+  border: 1px solid #2e7d32;
+  color: #2e7d32;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tdrag-followup:hover { background: #eef3ee; }
+
+#tdrag-form {
+  display: flex;
+  padding: 10px;
+  border-top: 1px solid #e0e0e0;
+  gap: 8px;
+  background: #fff;
+}
+#tdrag-input {
+  flex: 1;
+  padding: 9px 11px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+}
+#tdrag-input:focus { border-color: #2e7d32; }
+#tdrag-send {
+  background: #2e7d32;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 14px;
+  cursor: pointer;
+  font-size: 14px;
+}
+#tdrag-send:hover { background: #276a2b; }
+
+.tdrag-dots { color: #999; }

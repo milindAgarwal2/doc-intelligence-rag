@@ -145,3 +145,24 @@ ADDED ITEMS (beyond the original 8)
    per-query log as JSONL (LOG_FILE already supports a file), then do
    ad-hoc analytics by loading it into pandas on demand — zero new infra.
 
+
+10. EMBEDDABLE CHAT WIDGET                                 [DONE]
+   -------------------------------------------------------------------
+   Delivered: the RAG backend exposed as an embeddable JS widget for any
+   website (one <script> tag), separate from the standalone Streamlit app.
+   - api_server.py (FastAPI): POST /api/chat, GET /api/health,
+     GET /api/source/{name} (serve cited docs; ext allowlist + traversal
+     guard), serves widget static files, open CORS (demo).
+   - generate_answer(): UI-free core extracted from chatBOT_engine so the
+     Streamlit app AND the API share the exact same retrieval/answer logic.
+   - widget/widget.js + widget.css: floating bubble, minimize, streamed-less
+     (non-streaming) answers, clickable source citations, follow-ups.
+   - demo-site/index.html: fake third-party site embedding the widget on a
+     different origin (:9000) vs API (:8000) to prove cross-origin.
+   - docker-compose: added 'api' (:8000) and 'demo' (:9000) services.
+   FOLLOW-UP (ties to #2): the widget makes auth URGENT — /api/chat and
+   /api/source are OPEN. Before any public/third-party embed: CORS origin
+   allowlist (from config), API key per embedder, rate limiting. Also:
+   streaming answers, inline figures/tables in the widget (text+citations
+   only today).
+

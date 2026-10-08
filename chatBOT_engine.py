@@ -700,6 +700,83 @@ def chat_history_to_pdf(messages):
 # ---------------------------------------------------------------------------
 # Core answer flow (retrieve → stream synthesized answer → render assets)
 # ---------------------------------------------------------------------------
+def generate_answer(user_question, provider, history=None):
+    """UI-FREE core: retrieve, score confidence, produce the answer + metadata.
+
+    Shared by the Streamlit app (answer_question) AND the HTTP API (api_server).
+    Contains NO Streamlit calls — it only computes. Returns a dict with the
+    answer text, cited sources/pages, confidence/refusal flags, follow-ups,
+    provider, the (possibly rewritten) search query, and latency.
+    """
+    history = history or []
+    _t_start = time.monotonic()
+
+    search_query = rewrite_query(user_question, history, provider)
+    docs = retrieve_docs(search_query)
+
+    threshold = get_low_confidence_threshold()
+    best_score = confidence_probe(search_query) if docs else None
+    low_confidence = (
+        best_score is not None and threshold > 0 and best_score < threshold
+    )
+
+    if not docs:
+        answer_text = "I couldn't find anything relevant in the indexed documents."
+        offered_pages = []
+    else:
+        _, offered_pages = _build_context(docs)
+        if provider == "none":
+            answer_text = render_extractive(docs)
+        else:
+            acc = []
+            if provider == "qwen":
+                gen = stream_qwen_answer(user_question, docs)
+            else:  # claude
+                client = anthropic.Anthropic(timeout=60.0, max_retries=2)
+                gen = stream_synthesized_answer(client, user_question, docs)
+            for delta in gen:
+                acc.append(delta)
+            answer_text = "".join(acc)
+            if _is_refusal(answer_text):
+                offered_pages = []
+
+    cited_pages = _cited_pages(answer_text, offered_pages) if offered_pages else []
+    sources = []
+    for fname, _page in cited_pages:
+        if fname and fname not in sources:
+            sources.append(fname)
+
+    refusal = _is_refusal(answer_text)
+    followups = (
+        suggest_followups(answer_text, docs, provider)
+        if docs and not refusal
+        else []
+    )
+
+    result = {
+        "answer": answer_text,
+        "sources": sources,
+        "cited_pages": cited_pages,
+        "low_confidence": low_confidence,
+        "best_score": best_score,
+        "refusal": refusal,
+        "followups": followups,
+        "provider": provider,
+        "search_query": search_query,
+        "docs_count": len(docs),
+        "latency_ms": int((time.monotonic() - _t_start) * 1000),
+    }
+    logger.info(
+        "generate_answer | provider=%s docs=%d best_score=%s low_conf=%s "
+        "refusal=%s sources=%d latency_ms=%d | q=%r",
+        provider, len(docs),
+        f"{best_score:.3f}" if best_score is not None else "n/a",
+        low_confidence, refusal, len(sources), result["latency_ms"],
+        user_question[:120],
+    )
+    return result
+
+
 def answer_question(user_question, include_image, include_table, provider, history=None):
     """Run one Q&A turn and append it to st.session_state.messages.
 
