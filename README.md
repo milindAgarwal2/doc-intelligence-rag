@@ -290,6 +290,14 @@ The `/api/source/{name}` endpoint only serves whitelisted document types
 (`.pdf`/`.pptx`/`.ppt`) by basename from the `pdf/`/`pptx/` folders, with
 path-traversal protection.
 
+### Configuring the widget greeting
+
+The message shown when a visitor opens the chat panel is **configurable** via
+`config.json` (`widget_welcome_message`), editable from the Embedding Manager GUI
+sidebar (**Chat widget** section). The widget fetches it from `GET /api/health` each
+time it opens, so a change takes effect on the **next session with no restart**. Set
+it to an empty string to show **no greeting** at all.
+
 ---
 
 ## Embedding Manager GUI

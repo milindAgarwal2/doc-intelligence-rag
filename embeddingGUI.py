@@ -157,6 +157,28 @@ def main():
                        + ".")
         st.divider()
 
+        # ---- Embeddable widget (#10) ----
+        st.subheader("Chat widget")
+        current_welcome = cfg.get("widget_welcome_message", "")
+        new_welcome = st.text_area(
+            "Widget welcome message",
+            value=current_welcome,
+            height=80,
+            help=(
+                "Greeting shown when a visitor opens the embeddable chat widget. "
+                "Read fresh from config.json each time the widget opens. Leave "
+                "blank to show no greeting at all."
+            ),
+        )
+        if new_welcome != current_welcome:
+            save_config({"widget_welcome_message": new_welcome})
+            st.success(
+                "Widget welcome message updated."
+                if new_welcome.strip()
+                else "Widget welcome message cleared (no greeting will show)."
+            )
+        st.divider()
+
     vectorstore = _load_vectorstore()
 
     # ---- Status: how many documents are embedded ----

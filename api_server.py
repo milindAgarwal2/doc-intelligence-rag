@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from logging_config import setup_logging
-from config import get_llm_provider
+from config import get_llm_provider, get_widget_welcome_message
 import chatBOT_engine as engine
 
 setup_logging()
@@ -89,7 +89,13 @@ def _effective_provider():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "provider": _effective_provider()}
+    # welcome_message is read fresh from config.json on every call, so a new
+    # widget session always gets the current greeting.
+    return {
+        "status": "ok",
+        "provider": _effective_provider(),
+        "welcome_message": get_widget_welcome_message(),
+    }
 
 
 @app.post("/api/chat", response_model=ChatResponse)

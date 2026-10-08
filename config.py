@@ -42,6 +42,9 @@ DEFAULTS = {
     "low_confidence_threshold": 0.63,
     "log_level": "INFO",
     "log_file": "",            # "" -> console/stderr only; a path -> also append there
+    # Embeddable widget (#10): the greeting shown when a visitor opens the chat
+    # panel. Read fresh each time a new session opens the widget. "" hides it.
+    "widget_welcome_message": "Hi! Ask me a question about the indexed documents.",
 }
 
 
@@ -96,6 +99,8 @@ def load_config():
     )
     if not isinstance(cfg.get("log_file"), str):
         cfg["log_file"] = DEFAULTS["log_file"]
+    if not isinstance(cfg.get("widget_welcome_message"), str):
+        cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
     return cfg
 
 
@@ -117,6 +122,8 @@ def save_config(updates):
     )
     if not isinstance(cfg.get("log_file"), str):
         cfg["log_file"] = DEFAULTS["log_file"]
+    if not isinstance(cfg.get("widget_welcome_message"), str):
+        cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
@@ -141,3 +148,8 @@ def get_log_level():
 def get_log_file():
     """Return the configured log-file path from config.json ("" = console only)."""
     return load_config()["log_file"]
+
+
+def get_widget_welcome_message():
+    """Return the widget greeting from config.json ("" = no greeting shown)."""
+    return load_config()["widget_welcome_message"]

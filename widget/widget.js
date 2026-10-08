@@ -81,13 +81,31 @@
     messages.scrollTop = messages.scrollHeight;
     return el;
   }
+  var greeted = false;
+
+  function showGreeting() {
+    // Fetch the configurable welcome message from the API (read fresh from
+    // config.json server-side). Only shown once per widget session, and only
+    // if non-empty (an empty message in config hides the greeting entirely).
+    if (greeted) return;
+    greeted = true;
+    fetch(API + "/health")
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .then(function (info) {
+        var msg = info && typeof info.welcome_message === "string"
+          ? info.welcome_message.trim()
+          : "";
+        if (msg) addMessage("bot", esc(msg));
+      })
+      .catch(function () { /* no greeting if health is unreachable */ });
+  }
 
   function openPanel() {
     panel.hidden = false;
     launcher.style.display = "none";
     input.focus();
     if (messages.childElementCount === 0) {
-      addMessage("bot", "Hi! Ask me a question about the indexed documents.");
+      showGreeting();
     }
   }
   function closePanel() {
