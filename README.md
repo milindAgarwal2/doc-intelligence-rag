@@ -655,3 +655,10 @@ streamlit run chatBOT_engine.py
 # Optional: manage documents
 streamlit run embeddingGUI.py --server.port 8502
 ```
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE) — free to use, modify, and distribute
+with attribution. © 2026 Milind Agarwal.
