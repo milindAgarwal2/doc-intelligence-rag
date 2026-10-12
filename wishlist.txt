@@ -1,4 +1,4 @@
-ChatBOT — Feature Wishlist
+doc-intelligence-rag — Feature Wishlist
 ==========================
 Overlap between reviewer feedback (session 2026-10-07) and our earlier
 professional-polish roadmap. These 8 items appeared on BOTH lists.

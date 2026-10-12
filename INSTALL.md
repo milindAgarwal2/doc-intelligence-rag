@@ -127,7 +127,7 @@ results.
 
 ```bash
 git clone <your-repo-url>
-cd ChatBOT
+cd doc-intelligence-rag
 
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -461,7 +461,7 @@ Both should return `200`.
 ## Project Structure
 
 ```
-ChatBOT/
+doc-intelligence-rag/
 ├── chatBOT_engine.py      # Streamlit chatbot (retrieval + Claude + rendering + chat-to-PDF)
 ├── embeddingEngine.py     # Ingestion: extract text/images/tables + embed (reusable fns)
 ├── embeddingGUI.py        # Streamlit GUI: view / upload / delete embedded documents
@@ -677,7 +677,7 @@ For anything beyond local/dev use:
 ## Quick Start (TL;DR)
 
 ```bash
-git clone <your-repo-url> && cd ChatBOT
+git clone <your-repo-url> && cd doc-intelligence-rag
 python3 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip && pip install -r requirements.txt
 cp .env.example .env            # edit .env → add ANTHROPIC_API_KEY

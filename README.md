@@ -135,7 +135,7 @@ Generated at runtime: `chroma_Name/` (vector store), `table/<doc>/<page>/*.pkl`,
 ## Installation
 
 ```bash
-cd ChatBOT
+cd doc-intelligence-rag
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 python -m pip install --upgrade pip
@@ -656,7 +656,7 @@ deactivate 2>/dev/null; rm -rf .venv
 ## Quick start (TL;DR)
 
 ```bash
-cd ChatBOT
+cd doc-intelligence-rag
 python3 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip && pip install -r requirements.txt
 cp .env.example .env            # add ANTHROPIC_API_KEY
