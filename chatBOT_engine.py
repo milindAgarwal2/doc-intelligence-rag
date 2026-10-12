@@ -20,7 +20,7 @@ from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
 from config import (
     load_config, VALID_PROVIDERS, get_low_confidence_threshold,
-    get_chatbot_config,
+    get_chatbot_config, get_qa_logging_config,
 )
 from logging_config import setup_logging
 
@@ -553,22 +553,54 @@ def _is_refusal(answer_text):
     """True if a generative answer is a grounded 'I don't know' refusal.
 
     The synthesis prompt instructs the model to "say you don't know based on the
-    available documents" when the context lacks the answer. Such a refusal emits
-    no [file p.N] citations, so without this check _cited_pages() would fall
-    back to ALL retrieved pages and wrongly surface source-download buttons and
-    assets for a question the documents don't actually answer. Matching is
-    conservative (anchored to the known refusal phrasing + an opening position)
-    to avoid muting a real answer that merely contains the words "don't know".
+    available documents" when the context lacks the answer, but the model
+    paraphrases this freely ("I don't have any information about…", "the
+    documents do not contain…", etc.). A refusal must be detected so
+    _cited_pages() does not surface source-download buttons / figures / tables
+    for a question the documents don't actually answer — note the model may even
+    name documents with [file p.N] markers *inside* a refusal sentence, so we
+    cannot rely on the absence of citations.
+
+    A refusal LEADS with the refusal: the model opens by stating it can't answer,
+    then may add context. A real answer opens with the content and might only
+    mention a phrase like "does not contain" later. So we scan a short OPENING
+    window (first ~120 chars) — long enough to catch "I don't have any
+    information about X" but short enough not to trip on a real answer that
+    mentions a gap mid-paragraph. Curly apostrophes are normalized.
     """
     if not answer_text:
         return True
-    head = answer_text.strip().lower()[:160]
+    # Normalize curly apostrophes to straight so one pattern set covers both.
+    head = answer_text.strip().lower().replace("\u2019", "'")[:120]
     patterns = (
+        # first-person "I don't ..." refusals
         "i don't know",
-        "i don’t know",      # curly apostrophe variant
         "i do not know",
         "i couldn't find",
         "i could not find",
+        "i can't find",
+        "i cannot find",
+        "i don't have any information",
+        "i don't have information",
+        "i don't have enough information",
+        "i don't have specific information",
+        "i don't have details",
+        "i'm unable to",
+        "i am unable to",
+        "i'm not able to",
+        # document-subject refusals, only when they LEAD the answer
+        "there is no information",
+        "there's no information",
+        "no information about",
+        "no information on",
+        "no mention of",
+        "the documents do not contain",
+        "the documents don't contain",
+        "the context does not contain",
+        "the context doesn't contain",
+        "the provided context does not",
+        "the available documents do not",
+        "the available documents don't",
     )
     return any(p in head for p in patterns)
 
@@ -703,7 +735,7 @@ def chat_history_to_pdf(messages):
 # ---------------------------------------------------------------------------
 # Core answer flow (retrieve → stream synthesized answer → render assets)
 # ---------------------------------------------------------------------------
-def generate_answer(user_question, provider, history=None):
+def generate_answer(user_question, provider, history=None, source="chatbot"):
     """UI-FREE core: retrieve, score confidence, produce the answer + metadata.
 
     Shared by the Streamlit app (answer_question) AND the HTTP API (api_server).
@@ -750,9 +782,13 @@ def generate_answer(user_question, provider, history=None):
             sources.append(fname)
 
     refusal = _is_refusal(answer_text)
+    # Suppress suggested follow-ups when the question is out of context: either
+    # a grounded refusal, OR a low-confidence result (best relevance below the
+    # threshold => the question likely isn't covered by the embedded documents).
+    # Follow-ups off an off-topic retrieval would just point further off-topic.
     followups = (
         suggest_followups(answer_text, docs, provider)
-        if docs and not refusal
+        if docs and not refusal and not low_confidence
         else []
     )
 
@@ -777,6 +813,29 @@ def generate_answer(user_question, provider, history=None):
         low_confidence, refusal, len(sources), result["latency_ms"],
         user_question[:120],
     )
+
+    # Persist the Q&A to the history DB (Postgres) for the admin GUI. This is
+    # the SINGLE shared write point, so BOTH the Streamlit chatbot and the
+    # widget API are logged automatically. ``source`` distinguishes them. The
+    # whole thing is fail-safe + gated by the config toggle: a DB error or
+    # disabled logging must NEVER affect the answer the caller already has.
+    try:
+        if get_qa_logging_config()["enabled"]:
+            import db
+            db.log_qa(
+                question=user_question,
+                answer=answer_text,
+                source=source,
+                provider=provider,
+                best_score=best_score,
+                low_confidence=low_confidence,
+                refusal=refusal,
+                sources=sources,
+                latency_ms=result["latency_ms"],
+            )
+    except Exception:
+        logger.debug("qa-log: skipped (non-fatal)", exc_info=True)
+
     return result
 
 
@@ -863,14 +922,14 @@ def answer_question(user_question, include_image, include_table, provider, histo
         st.markdown(assets_html, unsafe_allow_html=True)
 
     # Suggested follow-up questions (generative providers only; grounded in the
-    # Suggested follow-up questions (generative providers only; grounded in the
     # answer + retrieved context). Rendered as clickable buttons by the caller.
-    # Suppressed on a grounded refusal: when the answer is "I don't know", the
-    # retrieved chunks are off-topic, so follow-ups generated from them would be
-    # about unrelated documents (not the user's actual question).
+    # Suppressed when the question is out of context: a grounded refusal OR a
+    # low-confidence result (best relevance below threshold => likely not covered
+    # by the embedded documents). Follow-ups off off-topic retrieval would point
+    # at unrelated documents, not the user's actual question.
     followups = (
         suggest_followups(answer_text, docs, provider)
-        if docs and not _is_refusal(answer_text)
+        if docs and not _is_refusal(answer_text) and not low_confidence
         else []
     )
 
@@ -901,6 +960,27 @@ def answer_question(user_question, include_image, include_table, provider, histo
         int((time.monotonic() - _t_start) * 1000),
         user_question[:120],
     )
+
+    # Persist this chatbot turn to the Q&A history DB (fail-safe + toggle-gated).
+    # The widget logs via generate_answer(); the Streamlit path has its own
+    # answer loop, so it logs here with source="chatbot".
+    try:
+        if get_qa_logging_config()["enabled"]:
+            import db
+            db.log_qa(
+                question=user_question,
+                answer=answer_text,
+                source="chatbot",
+                provider=provider,
+                best_score=best_score,
+                low_confidence=low_confidence,
+                refusal=_is_refusal(answer_text),
+                sources=sources,
+                latency_ms=int((time.monotonic() - _t_start) * 1000),
+            )
+    except Exception:
+        logger.debug("qa-log: skipped (non-fatal)", exc_info=True)
+
     return turn
 
 

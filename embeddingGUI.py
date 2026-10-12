@@ -23,7 +23,10 @@ from embeddingEngine import (
     list_embedded_documents,
     delete_document,
 )
-from config import load_config, save_config, VALID_PROVIDERS, VALID_LOG_LEVELS
+from config import (
+    load_config, save_config, VALID_PROVIDERS, VALID_LOG_LEVELS,
+    get_qa_logging_config,
+)
 from logging_config import setup_logging
 
 setup_logging()
@@ -343,6 +346,157 @@ def _tab_chatbot(cfg):
         st.success("Chatbot settings saved. Refresh the chatbot tab to apply.")
 
 
+def _tab_qa_history(cfg):
+    """Q&A history: browse every stored question + answer, with filters, stats,
+    CSV export, retention/clear controls, and the logging on/off toggle.
+
+    All DB access goes through db.py, which is fail-safe: if Postgres is
+    unreachable the tab shows a clear status instead of erroring.
+    """
+    import pandas as pd
+    import db
+
+    st.subheader("Q&A History")
+    st.caption(
+        "Every answered question (chatbot + widget) stored in Postgres. Use it "
+        "to review what users ask and how the assistant responds."
+    )
+
+    # --- Logging toggle + retention (non-secret -> config.json) --------------
+    qa_cfg = get_qa_logging_config()
+    with st.form("qa_logging_form"):
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            enabled = st.checkbox(
+                "Enable Q&A logging",
+                value=bool(qa_cfg["enabled"]),
+                help="When off, new questions are NOT stored. Existing rows stay.",
+            )
+        with c2:
+            retention = st.number_input(
+                "Retention (days, 0 = keep forever)",
+                min_value=0, max_value=3650,
+                value=int(qa_cfg["retention_days"]), step=1,
+                help="Rows older than this are purged when you click 'Purge now'.",
+            )
+        saved = st.form_submit_button("Save logging settings", type="primary")
+    if saved:
+        save_config({"qa_logging_enabled": enabled,
+                     "qa_log_retention_days": int(retention)})
+        st.success("Q&A logging settings saved.")
+        qa_cfg = get_qa_logging_config()
+
+    # --- Connectivity status --------------------------------------------------
+    if not db.is_available():
+        st.warning(
+            "⚠️ The Q&A history database is not reachable. Check that the `db` "
+            "service is running and the DB_* / POSTGRES_* values in `.env` are "
+            "correct. Answering still works — only history is unavailable."
+        )
+        return
+
+    # --- Stats header ---------------------------------------------------------
+    s = db.stats()
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total logged", s["total"])
+    m2.metric("From chatbot", s["chatbot"])
+    m3.metric("From widget", s["widget"])
+    m4.metric("Refusals", s["refusals"])
+    if s["last"]:
+        st.caption(f"Most recent: {s['last']:%Y-%m-%d %H:%M} · "
+                   f"earliest: {s['first']:%Y-%m-%d %H:%M}")
+
+    st.divider()
+
+    # --- Filters --------------------------------------------------------------
+    f1, f2, f3 = st.columns([1, 2, 1])
+    with f1:
+        src = st.selectbox("Source", ["all", "chatbot", "widget"], index=0)
+    with f2:
+        search = st.text_input("Search questions", placeholder="substring match…")
+    with f3:
+        limit = st.selectbox("Max rows", [50, 100, 200, 500, 1000], index=2)
+
+    rows = db.fetch_qa(
+        limit=int(limit),
+        source=None if src == "all" else src,
+        search=search.strip() or None,
+    )
+
+    if not rows:
+        st.info("No Q&A rows match. Ask a question in the chatbot or widget, "
+                "then refresh this tab.")
+        return
+
+    # --- Table + export -------------------------------------------------------
+    df = pd.DataFrame(rows)
+    # Flatten the JSONB sources list to a readable string (basenames) for
+    # display/CSV — the DB keeps full paths for provenance, but the table shows
+    # just document names to match what users see.
+    if "sources" in df.columns:
+        df["sources"] = df["sources"].apply(
+            lambda v: ", ".join(os.path.basename(x) for x in v)
+            if isinstance(v, list) else (v or "")
+        )
+    # Show the boolean flags as plain text ("Yes"/"No") rather than Streamlit's
+    # default checkbox rendering, which can look like an interactive control in
+    # a read-only table.
+    for _bcol in ("low_confidence", "refusal"):
+        if _bcol in df.columns:
+            df[_bcol] = df[_bcol].apply(
+                lambda v: "Yes" if bool(v) else "No"
+            )
+    # Order columns for readability.
+    col_order = [c for c in [
+        "asked_at", "source", "question", "answer", "provider",
+        "best_score", "low_confidence", "refusal", "sources", "latency_ms", "id",
+    ] if c in df.columns]
+    df = df[col_order]
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "asked_at": st.column_config.DatetimeColumn("When", format="YYYY-MM-DD HH:mm"),
+            "question": st.column_config.TextColumn("Question", width="medium"),
+            "answer": st.column_config.TextColumn("Answer", width="large"),
+            "best_score": st.column_config.NumberColumn("Score", format="%.3f"),
+            "low_confidence": st.column_config.TextColumn("Low confidence"),
+            "refusal": st.column_config.TextColumn("Refusal"),
+            "latency_ms": st.column_config.NumberColumn("ms"),
+        },
+    )
+
+    st.download_button(
+        "⬇️ Export shown rows (CSV)",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name="qa_history.csv",
+        mime="text/csv",
+    )
+
+    # --- Maintenance (destructive) -------------------------------------------
+    st.divider()
+    st.markdown("**Maintenance**")
+    mc1, mc2 = st.columns(2)
+    with mc1:
+        if st.button("🧹 Purge now (apply retention)",
+                     help="Delete rows older than the retention days set above."):
+            days = get_qa_logging_config()["retention_days"]
+            if days and days > 0:
+                deleted = db.purge_older_than(days)
+                st.success(f"Purged {deleted} row(s) older than {days} days.")
+            else:
+                st.info("Retention is 0 (keep forever) — nothing purged.")
+    with mc2:
+        confirm = st.checkbox("I understand this deletes ALL history")
+        if st.button("🗑️ Clear ALL history", disabled=not confirm, type="secondary"):
+            if db.clear_all():
+                st.success("All Q&A history cleared.")
+            else:
+                st.error("Could not clear history (see logs).")
+
+
 def main():
     load_dotenv()
     st.set_page_config(page_title="Document Assistant Admin",
@@ -366,8 +520,9 @@ def main():
     docs = list_embedded_documents(vectorstore)
     chunk_count = _count_chunks(vectorstore)
 
-    tab_docs, tab_engine, tab_chatbot, tab_widget, tab_logs = st.tabs(
-        ["📚 Documents", "⚙️ Answer engine", "🤖 Chatbot", "💬 Chat widget", "🔧 Logging"]
+    tab_docs, tab_engine, tab_chatbot, tab_widget, tab_logs, tab_history = st.tabs(
+        ["📚 Documents", "⚙️ Answer engine", "🤖 Chatbot", "💬 Chat widget",
+         "🔧 Logging", "📊 Q&A History"]
     )
     with tab_docs:
         _tab_documents(vectorstore, docs, chunk_count)
@@ -379,6 +534,8 @@ def main():
         _tab_widget(cfg)
     with tab_logs:
         _tab_logging(cfg)
+    with tab_history:
+        _tab_qa_history(cfg)
 
 
 if __name__ == "__main__":

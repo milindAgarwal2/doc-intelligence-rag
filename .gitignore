@@ -17,6 +17,11 @@ table/
 
 # Saved chat sessions / exports
 chatbot*.json
+# Dated scratch/export JSON dumps (e.g. 10072026.json, 10082026AM.json)
+[0-9]*.json
+
+# Generated documents (FEATURES.md is tracked; the exported .docx is not)
+*.docx
 
 # Application log files (the logs/ dir is kept via .gitkeep; files are ignored)
 logs/*.log

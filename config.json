@@ -16,5 +16,7 @@
   "chatbot_conversation_label": "Conversation",
   "chatbot_clear_chat_label": "🗑️ Clear chat",
   "chatbot_show_figures_option": true,
-  "chatbot_show_tables_option": true
+  "chatbot_show_tables_option": true,
+  "qa_logging_enabled": true,
+  "qa_log_retention_days": 90
 }

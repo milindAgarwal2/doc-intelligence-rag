@@ -26,6 +26,7 @@ results.
 - [Building the Vector Store](#building-the-vector-store)
 - [Running the App](#running-the-app)
 - [Embedding Manager GUI](#embedding-manager-gui)
+- [Q&A History Logging](#qa-history-logging)
 - [Validating the Deployment](#validating-the-deployment)
 - [Project Structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
@@ -60,6 +61,11 @@ results.
 - 🧹 **Clear chat** and 📄 **chat-to-PDF export** in the sidebar
 - 🗂️ **Embedding Manager GUI** (`embeddingGUI.py`) — view / upload / delete documents
 - 💾 **Chat-to-PDF export** — download the whole conversation (incl. images/tables)
+- 📊 **Q&A history logging** — every answered question (from both the chatbot and
+  the embeddable widget) is logged to a **Postgres** `qa_log` table with its answer
+  and metadata; browse/search/export and purge it from the Admin Console's
+  **📊 Q&A History** tab. **Fail-safe**: if Postgres is unreachable, answering still
+  works and logging silently no-ops
 - 💡 Lightweight footprint — local embeddings run on CPU without PyTorch
 
 ---
@@ -157,6 +163,14 @@ ANTHROPIC_API_KEY=sk-ant-...your-key...
 # ANTHROPIC_MODEL=claude-sonnet-5
 # Optional: path to the local Qwen GGUF (only for the "Qwen" answer engine)
 # QWEN_GGUF_PATH=models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+
+# Q&A history Postgres connection (DB password is a SECRET → it lives here, not
+# in config.json). These match the compose `db` service defaults.
+POSTGRES_DB=techdoc
+POSTGRES_USER=techdoc
+POSTGRES_PASSWORD=change-me
+DB_HOST=db
+DB_PORT=5432
 ```
 
 > 📋 **Logging/observability.** The app uses Python's `logging` (configured once in
@@ -171,8 +185,10 @@ ANTHROPIC_API_KEY=sk-ant-...your-key...
 > there are no logging env vars. The evaluation harness prints its report to stdout
 > and is intentionally separate from logging.
 
-> 🔐 `.env` is git-ignored and holds **only secrets** (the API key). **Never commit
-> your API key** or hardcode it in source.
+> 🔐 `.env` is git-ignored and holds **only secrets** (the Anthropic API key and the
+> Postgres `POSTGRES_PASSWORD`). **Never commit** your API key or DB password, or
+> hardcode them in source. Non-secret toggles — including Q&A-logging on/off and
+> retention — live in `config.json` (see [Q&A history logging](#qa-history-logging)).
 
 ### Answer engine (LLM provider)
 
@@ -214,6 +230,37 @@ them):
 - `AI.png` (bot avatar)
 - `users.png` (user avatar)
 - `icon.png` (alt bot avatar)
+
+### Q&A history logging
+
+Every answered question — from **both** the Streamlit chatbot and the embeddable
+widget — is logged to a **Postgres** table `qa_log`, tagged `source='chatbot'` or
+`source='widget'`. The write happens in the shared answer core (`generate_answer()`,
+plus the Streamlit `answer_question` path), so both front-ends log automatically. A
+`db.py` module implements all of it.
+
+Each row stores: `asked_at`, `source`, `question`, `answer`, `provider`,
+`best_score`, `low_confidence` (bool), `refusal` (bool), `sources` (JSONB list of
+cited docs), and `latency_ms`.
+
+Config follows the project's firm **secret vs non-secret** split:
+
+| Setting | Where | Keys |
+|---|---|---|
+| DB **password** + connection (**secret**) | `.env` | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_HOST=db`, `DB_PORT=5432` |
+| Logging **toggle + retention** (non-secret) | `config.json` | `qa_logging_enabled` (default `true`), `qa_log_retention_days` (default `90`) |
+
+Both `config.json` keys are editable from the Admin Console's **📊 Q&A History** tab
+(see [Embedding Manager GUI](#embedding-manager-gui)).
+
+> ✅ **Fail-safe (and fail-fast).** If Postgres is unreachable, answering still works
+> — logging silently no-ops and fails fast so it never adds latency to an answer.
+> Setting `qa_logging_enabled` to `false` disables logging entirely.
+>
+> 🗄️ The Postgres `db` service runs as part of the Docker Compose stack (see
+> [Docker deployment](#docker-deployment)); its data persists in the named volume
+> `pgdata`. Running without Docker is still fine — if no reachable Postgres is
+> configured, logging just no-ops.
 
 ---
 
@@ -326,6 +373,53 @@ streamlit run embeddingGUI.py --server.port 8502
 > deletes the old chunks and stale extracted assets first, then re-adds — so
 > duplicates never accumulate. The GUI reports when an upload was skipped as unchanged.
 
+The Admin Console is organized into tabs: **📚 Documents** | **⚙️ Answer engine** |
+**🤖 Chatbot** | **💬 Chat widget** | **🔧 Logging** | **📊 Q&A History**.
+
+### 📊 Q&A History tab
+
+The **📊 Q&A History** tab is the maintenance UI for the Postgres `qa_log` table
+(see [Q&A History Logging](#qa-history-logging)):
+
+- **Stats metrics** — row counts and summary figures.
+- **Filters** — by `source` (chatbot/widget), free-text search, and a row limit.
+- A **read-only table** of logged questions, answers, and metadata.
+- **CSV export** of the current view.
+- **Maintenance** — purge rows older than `qa_log_retention_days`, or clear all.
+- Toggle logging (`qa_logging_enabled`) and set retention (`qa_log_retention_days`)
+  — both written to `config.json`.
+
+---
+
+## Q&A History Logging
+
+Every answered question is logged to a **Postgres** table `qa_log`, so you have an
+auditable record of what was asked, what the system answered, and how confident it
+was — across **both** front-ends (the Streamlit chatbot and the embeddable widget),
+each row tagged `source='chatbot'` or `source='widget'`.
+
+- **Where the write happens:** the shared answer core (`generate_answer()`) plus the
+  Streamlit `answer_question` path, so both front-ends log automatically. Implemented
+  in `db.py`.
+- **Columns:** `asked_at`, `source`, `question`, `answer`, `provider`, `best_score`,
+  `low_confidence` (bool), `refusal` (bool), `sources` (JSONB list of cited docs),
+  `latency_ms`.
+- **Fail-safe + fail-fast:** if Postgres is unreachable, answering still works —
+  logging silently no-ops and fails fast so it never adds latency to an answer.
+- **Dependency:** `psycopg[binary,pool]` (psycopg 3) in `requirements.txt`.
+
+**Configuration** (the project's secret vs non-secret split):
+
+| Setting | Where | Keys / defaults |
+|---|---|---|
+| DB **password** + connection (**secret**) | `.env` | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_HOST=db`, `DB_PORT=5432` |
+| Logging **toggle + retention** (non-secret) | `config.json` | `qa_logging_enabled` (default `true`), `qa_log_retention_days` (default `90`) |
+
+**Browse / maintain it** from the Admin Console's **📊 Q&A History** tab (stats,
+source/search/limit filters, a read-only table, CSV export, and purge-by-retention
+/ clear-all). The Postgres `db` service and its persistent `pgdata` volume are part
+of the Docker Compose stack — see [Docker deployment](#docker-deployment).
+
 ---
 
 ## Validating the Deployment
@@ -352,6 +446,16 @@ curl -s -o /dev/null -w "app:%{http_code}\n" http://localhost:8501/
 
 Both should return `200`.
 
+### Behaviour notes
+
+- **Out-of-context questions show no stray sources.** Refusal detection
+  (`_is_refusal`) now recognizes **paraphrased** refusals too (e.g. "I don't have any
+  information about X"), not just the canonical "I don't know". Previously a
+  paraphrased refusal slipped through and the widget wrongly showed source-document
+  links; now a refusal reliably suppresses them.
+- **Suggested follow-ups are suppressed when a question is out of context** — on a
+  grounded refusal **or** a low-confidence result (previously only on a refusal).
+
 ---
 
 ## Project Structure
@@ -361,6 +465,7 @@ ChatBOT/
 ├── chatBOT_engine.py      # Streamlit chatbot (retrieval + Claude + rendering + chat-to-PDF)
 ├── embeddingEngine.py     # Ingestion: extract text/images/tables + embed (reusable fns)
 ├── embeddingGUI.py        # Streamlit GUI: view / upload / delete embedded documents
+├── db.py                  # Postgres-backed Q&A history logging (qa_log table; fail-safe)
 ├── htmlTemplates.py       # CSS + chat message HTML templates
 ├── requirements.txt       # Python dependencies
 ├── .env.example           # Env template (copy to .env, add API key)
@@ -400,6 +505,8 @@ ChatBOT/
 | `applymap` AttributeError | Newer pandas | Use `DataFrame.map` (already applied) |
 | Garbled table values | Imperfect extraction on complex layouts | `lines_strict` strategy reduces this; verify via the source page link |
 | Chat shows nothing after a question | Stale UI | Re-run the query; the chat renders before the sidebar and PDF export is lazy |
+| Q&A history empty / not logging | Postgres unreachable, or `qa_logging_enabled` is `false` | Logging is fail-safe (answers still work); start the `db` service, check `.env` DB keys, and set `qa_logging_enabled: true` in `config.json` |
+| `psycopg` import error | Dependency missing | `pip install -r requirements.txt` (installs `psycopg[binary,pool]`) |
 
 ---
 
@@ -426,10 +533,11 @@ deactivate 2>/dev/null; rm -rf .venv
 ## Docker deployment
 
 The **whole application** ships as a single image. `docker-compose.yml` runs it as
-**four services** from that one image, sharing all runtime data (vector store,
-extracted assets, uploads, config, Qwen model, logs) through host-mounted volumes —
-so a document embedded in the Admin Console is immediately queryable in the chatbot
-and the widget, and everything persists across restarts.
+**five services** (four from that one image, plus a Postgres database), sharing all
+runtime data (vector store, extracted assets, uploads, config, Qwen model, logs)
+through host-mounted volumes — so a document embedded in the Admin Console is
+immediately queryable in the chatbot and the widget, and everything persists across
+restarts.
 
 | Service | URL | Container | What |
 |---|---|---|---|
@@ -437,38 +545,55 @@ and the widget, and everything persists across restarts.
 | Admin Console (GUI) | http://localhost:8502 | `techdoc-gui` | Documents + settings |
 | Widget API | http://localhost:8000 | `techdoc-api` | FastAPI backend for the embeddable widget |
 | Demo site | http://localhost:9000 | `techdoc-demo` | Fake site embedding the widget (cross-origin) |
+| Postgres `db` | *(internal 5432, not published)* | `techdoc-db` | Q&A history store (`qa_log`); `postgres:16-alpine`; data in volume `pgdata` |
 
 > The **chatbot** and **Admin Console** are Streamlit apps; the **Widget API** serves
 > the embeddable JS widget (`/api/chat`, `/api/health`, `/api/source/{name}`) and the
 > **demo site** is a fake third-party page that embeds it on a different origin to
-> prove the cross-origin embed. See the main README's *Embeddable chat widget* section.
+> prove the cross-origin embed. The **`db`** service is a Postgres database that
+> stores the Q&A history (`qa_log`); its port **5432 is internal only** (not published
+> to the host) and its data persists in the named volume `pgdata`. See the main
+> README's *Embeddable chat widget* and *Q&A history logging* sections.
 
 ### With Docker Compose (recommended)
 
 ```bash
 cp .env.example .env          # add ANTHROPIC_API_KEY (only needed for the Claude engine)
 
-docker compose up --build     # build once, start ALL FOUR services
+docker compose up --build     # build once, start ALL FIVE services
 # or detached:
 docker compose up -d --build
 
 docker compose ps             # see status + health
 docker compose logs -f chatbot
-docker compose down           # stop both (host data is kept)
+docker compose down           # stop all services (host data + pgdata volume are kept)
 ```
 
 > The host folders `chroma_Name/`, `pdf/`, `pptx/`, `table/`, `models/` and the file
-> `config.json` are bind-mounted into **both** containers. Put source documents in
+> `config.json` are bind-mounted into the app containers. Put source documents in
 > `pdf/`/`pptx/` on the host (or upload via the GUI) and build the store with the GUI
-> or `docker compose run --rm chatbot python embeddingEngine.py`.
+> or `docker compose run --rm chatbot python embeddingEngine.py`. The Postgres `db`
+> service keeps its data in the named volume `pgdata`, which survives
+> `docker compose down`/`up`.
+
+> ⚠️ `docker compose down -v` also removes the `pgdata` volume — this **wipes the
+> Q&A history** (destructive). Use plain `docker compose down` to keep it.
 
 ### Without Compose (plain Docker)
 
-If the Compose plugin isn't installed, build once and run the two containers
-manually (same image, different launch command and port):
+If the Compose plugin isn't installed, build once and run the containers manually
+(same image, different launch command and port for the two Streamlit apps, plus a
+stock Postgres image for the Q&A history store):
 
 ```bash
 docker build -t techdoc-rag:latest .
+
+# Postgres for Q&A history (optional — logging is fail-safe and no-ops without it)
+docker run -d --name techdoc-db \
+  -e POSTGRES_DB=techdoc -e POSTGRES_USER=techdoc -e POSTGRES_PASSWORD=change-me \
+  -v techdoc_pgdata:/var/lib/postgresql/data \
+  postgres:16-alpine
+  # 5432 is left unpublished; the app containers reach it over the Docker network
 
 # Chatbot (8501)
 docker run -d --name techdoc-chatbot --env-file .env -p 8501:8501 \
@@ -485,6 +610,11 @@ docker run -d --name techdoc-gui --env-file .env -p 8502:8502 \
   techdoc-rag:latest \
   streamlit run embeddingGUI.py --server.port=8502 --server.address=0.0.0.0
 ```
+
+> ℹ️ Plain `docker run` doesn't create the shared network/DNS that Compose does, so
+> for the app containers to reach Postgres by the `DB_HOST=db` name, use a shared
+> `docker network` (or `--link`). Compose handles this for you — it's the recommended
+> path. Without a reachable DB, Q&A logging simply no-ops (answers are unaffected).
 
 ### Health checks
 
@@ -506,10 +636,13 @@ curl -s -o /dev/null -w "api:%{http_code}\n"     http://localhost:8000/api/healt
 - **First start** downloads the `bge-small-en-v1.5` ONNX model (~130 MB) inside the
   container; the healthcheck `start_period` allows for this.
 - **Qwen engine (optional):** the ~1 GB GGUF is **not** baked into the image — place
-  it in the host `models/` folder (mounted into both containers) and select Qwen in
+  it in the host `models/` folder (mounted into the app containers) and select Qwen in
   the GUI. The build already compiles `llama-cpp-python`.
-- **Secrets:** `ANTHROPIC_API_KEY` is passed via `--env-file .env` / Compose
-  `env_file`, never baked into the image.
+- **Secrets:** `ANTHROPIC_API_KEY` and `POSTGRES_PASSWORD` are passed via
+  `--env-file .env` / Compose `env_file`, never baked into the image.
+- **Q&A history store:** the `db` service (`postgres:16-alpine`) persists to the
+  named volume `pgdata` and survives `docker compose down`/`up`; `docker compose
+  down -v` wipes it. Logging is fail-safe — if the DB is down, answers still work.
 - **Image size** is ~2 GB (PyMuPDF + ONNX runtime + compiled llama.cpp).
 
 ---
@@ -525,10 +658,12 @@ For anything beyond local/dev use:
   nginx/Caddy; terminate TLS there. (Images/tables/PDF links are inlined into the
   page, so there is no separate static-asset server to proxy.)
 - **Containerized:** see [Docker deployment](#docker-deployment) — the whole app
-  (chatbot + GUI) runs from one image via `docker compose`, with health checks.
+  (chatbot + GUI + widget API + demo + Postgres) runs via `docker compose`, with
+  health checks.
 - **Auth:** put SSO/auth in front of the UI via the reverse proxy.
 - **Process supervision:** run the app under systemd/supervisord/containers.
-- **Secrets:** store `ANTHROPIC_API_KEY` in a secrets manager, not plaintext `.env`.
+- **Secrets:** store `ANTHROPIC_API_KEY` and `POSTGRES_PASSWORD` in a secrets
+  manager, not plaintext `.env`.
 - **Reproducibility:** pin dependency versions in `requirements.txt`.
 
 ---

@@ -57,6 +57,8 @@ query time (reconstructing those assets from metadata and rendering them inline)
 - **PPTX processing:** `python-pptx` (slide text, native tables, inserted pictures)
 - **UI:** Streamlit chat primitives (`st.chat_input` / `st.chat_message`)
 - **Chat-to-PDF export:** `xhtml2pdf`
+- **Q&A history logging:** Postgres (`postgres:16-alpine`) via `psycopg` (psycopg 3)
+  — every answered question + metadata is logged to a `qa_log` table (fail-safe)
 
 ---
 
@@ -96,11 +98,12 @@ query matching the table's *content* (not just nearby prose) retrieves that page
 | `chatBOT_engine.py` | Streamlit chatbot (retrieval + Claude + rendering + chat-to-PDF). Also hosts the UI-free `generate_answer()` shared with the widget API. |
 | `embeddingGUI.py` | Streamlit GUI to view / upload / delete embedded documents. |
 | `api_server.py` | FastAPI backend for the embeddable widget (`/api/chat`, `/api/health`, `/api/source/{name}`). |
+| `db.py` | Postgres-backed Q&A history logging (writes every answered question + metadata to the `qa_log` table; stats/query/purge helpers). Fail-safe. |
 | `widget/` | Embeddable JS chat widget (`widget.js`, `widget.css`). |
 | `demo-site/` | Fake third-party site that embeds the widget (cross-origin demo). |
 | `htmlTemplates.py` | CSS + chat message HTML templates. |
 | `requirements.txt` | Python dependencies. |
-| `.env` | Holds `ANTHROPIC_API_KEY` (git-ignored). |
+| `.env` | Holds `ANTHROPIC_API_KEY` and the Postgres credentials incl. the DB password (git-ignored). |
 
 Generated at runtime: `chroma_Name/` (vector store), `table/<doc>/<page>/*.pkl`,
 `pdf/<doc>/<page>/*.png`.
@@ -139,7 +142,20 @@ ANTHROPIC_API_KEY=sk-ant-...your-key...
 # Optional:
 # ANTHROPIC_MODEL=<model-id>
 # SKIP_PAGES=0        # leading pages to skip per PDF (cover/TOC); default 0
+
+# Postgres Q&A history logging (the DB PASSWORD is a secret → it lives here):
+POSTGRES_DB=techdoc
+POSTGRES_USER=techdoc
+POSTGRES_PASSWORD=change-me
+DB_HOST=db           # 'db' is the compose service name; use 'localhost' outside Docker
+DB_PORT=5432
 ```
+
+> **Secret vs non-secret split (firm project rule):** only *secrets* belong in
+> `.env` — including the DB **password** (`POSTGRES_PASSWORD`) and the Postgres
+> connection settings above. The non-secret Q&A-logging **toggle** and **retention**
+> (`qa_logging_enabled`, `qa_log_retention_days`) live in `config.json` and are
+> editable from the GUI — see [Q&A history logging](#qa-history-logging-postgres).
 
 Logging verbosity and an optional log file are **non-secret settings**, so they
 live in **`config.json`** (`log_level`, `log_file`) alongside the answer-engine and
@@ -211,19 +227,27 @@ Open **http://localhost:8501**.
 ### Docker (whole app in containers)
 
 The entire application — chatbot **and** Embedding Manager GUI — runs from one
-image as two services that share all runtime data via volumes:
+image as services that share all runtime data via volumes:
 
 ```bash
 cp .env.example .env            # add ANTHROPIC_API_KEY (Claude engine only)
 docker compose up --build       # chatbot → :8501, GUI → :8502
 ```
 
-Both expose a health endpoint (`/_stcore/health`). See
+Both the chatbot and GUI expose a health endpoint (`/_stcore/health`). See
 [INSTALL.md → Docker deployment](INSTALL.md#docker-deployment) for the plain-`docker`
 fallback, volume layout, and the optional Qwen model mount.
 
-> `docker compose up` also starts the **widget API** (`:8000`) and a **demo site**
-> (`:9000`) — see [Embeddable chat widget](#embeddable-chat-widget) below.
+> `docker compose up` also starts the **widget API** (`:8000`), a **demo site**
+> (`:9000`), and a **Postgres `db`** service — see
+> [Embeddable chat widget](#embeddable-chat-widget) and
+> [Q&A history logging](#qa-history-logging-postgres) below.
+
+In total the compose stack runs **five services**: `chatbot` (:8501), `gui`
+(:8502), `api` (:8000), `demo` (:9000), and `db` (Postgres `postgres:16-alpine`,
+container `techdoc-db`; internal port **5432**, **not** published to the host). The
+`db` service persists its data in a named volume `pgdata` (see
+[Q&A history logging](#qa-history-logging-postgres)).
 
 ---
 
@@ -351,6 +375,51 @@ Features:
 > the old chunks and stale extracted assets, then re-adds — so duplicates never
 > accumulate.
 
+The Admin Console is organized into tabs: **📚 Documents | ⚙️ Answer engine |
+🤖 Chatbot | 💬 Chat widget | 🔧 Logging | 📊 Q&A History**. The last of these is
+described next.
+
+---
+
+## Q&A history logging (Postgres)
+
+Every answered question is logged to a Postgres table (`qa_log`) along with its
+response and metadata — for both the **Streamlit chatbot** and the **embeddable
+widget**, because the write happens in the shared `generate_answer()` core (plus the
+Streamlit `answer_question` path). Each row is tagged `source='chatbot'` or
+`source='widget'`.
+
+**Stored columns:** `asked_at`, `source`, `question`, `answer`, `provider`,
+`best_score`, `low_confidence` (bool), `refusal` (bool), `sources` (JSONB list of
+cited docs), `latency_ms`.
+
+**Fail-safe by design.** Logging is best-effort: if Postgres is unreachable,
+answering still works — the write silently no-ops. The connection fails **fast**, so
+logging never adds latency to an answer.
+
+**Config split (firm project rule):**
+
+| Setting | Lives in | Keys | Default |
+|---|---|---|---|
+| DB **password** + connection (secret) | `.env` | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_HOST`, `DB_PORT` | — |
+| Logging **toggle** + **retention** (non-secret) | `config.json` | `qa_logging_enabled`, `qa_log_retention_days` | `true`, `90` |
+
+The non-secret toggle and retention are editable from the Admin Console **📊 Q&A
+History** tab, which provides:
+
+- **Stats metrics** — totals and breakdowns at a glance.
+- **Filters** — by `source`, free-text search, and a row limit.
+- A **read-only table** of recent Q&A rows.
+- **CSV export** of the filtered rows.
+- **Maintenance** — purge rows older than `qa_log_retention_days`, or clear all
+  (destructive).
+
+**Dependency & storage.** Logging uses `psycopg[binary,pool]` (psycopg 3). Under
+Docker the `db` service is `postgres:16-alpine` (container `techdoc-db`, internal
+port **5432**, not published to the host) and persists its data in a named volume
+`pgdata` — it survives `docker compose down`/`up`. `docker compose down -v` **wipes**
+`pgdata` (destructive).
+
 ---
 
 ## Answer engine (pluggable LLM provider)
@@ -426,6 +495,11 @@ git-ignored). It runs in-process on CPU via `llama-cpp-python` — no server, no
   the assistant says it doesn't know rather than inventing facts. On such a grounded
   refusal, **no source downloads, figures/tables, or suggested follow-ups are shown**
   (they'd otherwise reflect off-topic retrieved chunks, not the user's question).
+  Refusal detection now recognizes **paraphrased** refusals too (e.g. "I don't have
+  any information about X"), so an out-of-context question no longer shows stray
+  source-document links.
+- **Suggested follow-ups are suppressed when a question is out of context** — on a
+  grounded refusal **or** a low-confidence result (previously only on a refusal).
 - **Low-confidence banner.** Before answering, the app reads the single best
   retrieval relevance score; if it falls below a configurable threshold
   (`low_confidence_threshold` in `config.json`, default **0.63**), a non-blocking

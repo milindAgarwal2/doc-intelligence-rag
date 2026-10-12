@@ -47,6 +47,11 @@ xhtml2pdf
 fastapi
 uvicorn
 
+# Q&A history logging -> Postgres. psycopg 3 (binary wheel bundles libpq, so no
+# system libpq-dev needed). Used by db.py; logging is optional/toggleable, but
+# the driver is always installed so the feature works out of the box.
+psycopg[binary,pool]
+
 # Utilities
 requests
 python-dotenv

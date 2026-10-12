@@ -113,7 +113,8 @@ def chat(req: ChatRequest):
     history = [{"role": t.role, "content": t.content} for t in req.history]
 
     try:
-        result = engine.generate_answer(question, provider, history=history)
+        result = engine.generate_answer(question, provider, history=history,
+                                        source="widget")
     except Exception as ex:
         logger.exception("chat failed")
         return ChatResponse(

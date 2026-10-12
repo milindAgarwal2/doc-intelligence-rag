@@ -14,6 +14,26 @@
 # ---------------------------------------------------------------------------
 
 services:
+  db:
+    # Postgres stores the Q&A history (every question + answer + metadata).
+    # Both the chatbot and the widget API write here; the admin GUI reads it.
+    # alpine image keeps the footprint small (~250 MB on disk vs ~430 MB).
+    image: postgres:16-alpine
+    container_name: techdoc-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-techdoc}
+      POSTGRES_USER: ${POSTGRES_USER:-techdoc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-techdoc}   # set a real one in .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # named volume -> data persists
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-techdoc} -d ${POSTGRES_DB:-techdoc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   chatbot:
     build: .
     image: techdoc-rag:latest           # built once, reused by the gui service
@@ -24,7 +44,10 @@ services:
     ports:
       - "8501:8501"
     env_file:
-      - .env                            # ANTHROPIC_API_KEY, SKIP_PAGES, etc.
+      - .env                            # ANTHROPIC_API_KEY, SKIP_PAGES, DB_*, etc.
+    depends_on:
+      db:
+        condition: service_healthy      # don't start answering until DB is ready
     volumes:
       - ./chroma_Name:/app/chroma_Name  # vector store (shared)
       - ./pdf:/app/pdf                  # source PDFs + extracted images (shared)
@@ -46,7 +69,10 @@ services:
     image: techdoc-rag:latest
     container_name: techdoc-gui
     depends_on:
-      - chatbot                         # ensures the image is built once first
+      chatbot:
+        condition: service_started      # ensures the image is built once first
+      db:
+        condition: service_healthy
     command: >
       streamlit run embeddingGUI.py
       --server.port=8502 --server.address=0.0.0.0
@@ -75,7 +101,10 @@ services:
     image: techdoc-rag:latest
     container_name: techdoc-api
     depends_on:
-      - chatbot
+      chatbot:
+        condition: service_started
+      db:
+        condition: service_healthy
     command: >
       uvicorn api_server:app --host 0.0.0.0 --port 8000
     ports:
@@ -111,3 +140,7 @@ services:
     ports:
       - "9000:9000"
     restart: unless-stopped
+
+# Named volume for the Postgres data directory (persists across down/up).
+volumes:
+  pgdata:

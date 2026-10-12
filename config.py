@@ -66,6 +66,12 @@ DEFAULTS = {
     # whose documents have no images/tables. When hidden the feature is OFF.
     "chatbot_show_figures_option": True,
     "chatbot_show_tables_option": True,
+    # Q&A history logging (Postgres). Non-secret knobs live here; the DB
+    # password is a secret and lives in .env. When enabled, every answered
+    # question (chatbot + widget) is stored for review in the Admin Console.
+    "qa_logging_enabled": True,
+    # Rows older than this are purged on a best-effort basis. 0 = keep forever.
+    "qa_log_retention_days": 90,
 }
 
 
@@ -147,6 +153,20 @@ def _normalize_chatbot(cfg):
         cfg[key] = bool(cfg.get(key, DEFAULTS[key]))
 
 
+def _normalize_qa_logging(cfg):
+    """Validate Q&A-logging keys in-place: enabled is a real bool; retention is
+    a non-negative int (0 = keep forever). Bad values fall back to defaults so a
+    hand-edited config.json can't break logging."""
+    cfg["qa_logging_enabled"] = bool(
+        cfg.get("qa_logging_enabled", DEFAULTS["qa_logging_enabled"])
+    )
+    try:
+        days = int(cfg.get("qa_log_retention_days", DEFAULTS["qa_log_retention_days"]))
+    except (TypeError, ValueError):
+        days = DEFAULTS["qa_log_retention_days"]
+    cfg["qa_log_retention_days"] = max(0, days)
+
+
 def load_config():
     """Return the config dict, merged over defaults. Never raises: a missing or
     malformed file yields the defaults so the app always runs.
@@ -176,6 +196,7 @@ def load_config():
         cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
     _normalize_widget_appearance(cfg)
     _normalize_chatbot(cfg)
+    _normalize_qa_logging(cfg)
     return cfg
 
 
@@ -201,6 +222,7 @@ def save_config(updates):
         cfg["widget_welcome_message"] = DEFAULTS["widget_welcome_message"]
     _normalize_widget_appearance(cfg)
     _normalize_chatbot(cfg)
+    _normalize_qa_logging(cfg)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
@@ -247,3 +269,16 @@ def get_chatbot_config():
     """Return the Streamlit chatbot UI settings (labels + visibility toggles)."""
     cfg = load_config()
     return {k: cfg[k] for k in (_CHATBOT_STR_KEYS + _CHATBOT_BOOL_KEYS)}
+
+
+def get_qa_logging_config():
+    """Return the Q&A-logging settings (non-secret) from config.json.
+
+    The DB connection/password itself comes from environment (.env), not here —
+    this only exposes the on/off toggle and retention policy.
+    """
+    cfg = load_config()
+    return {
+        "enabled": cfg["qa_logging_enabled"],
+        "retention_days": cfg["qa_log_retention_days"],
+    }

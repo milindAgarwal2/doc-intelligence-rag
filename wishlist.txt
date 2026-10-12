@@ -12,14 +12,18 @@ PROGRESS (as of session 2026-10-08):
   [DONE] #1 Hash-ID upsert (no duplicate chunks)
   [DONE] #3 Low-confidence banner (threshold in config.json, default 0.63)
   [DONE] #4 Evaluation harness (tests/eval: recall@k + calibration)
-  [DONE] #5 Docker (Dockerfile + docker-compose; now 4 services: chatbot :8501,
-             gui :8502, api :8000, demo :9000)
+  [DONE] #5 Docker (Dockerfile + docker-compose; now 5 services: chatbot :8501,
+             gui :8502, api :8000, demo :9000, db (Postgres, internal 5432))
   [DONE] #6 Observability — structured logging (logging_config.py; print()->logging;
              per-query structured log line; log_level/log_file in config.json,
              GUI-editable). NOTE: lightweight half; full tracing/dashboard = #9.
   [DONE] #10 Embeddable chat widget (API + JS widget + demo site)
   [DONE] #11 Configurability + Admin GUI polish (widget + chatbot UI all
              config.json-driven; tabbed Admin Console; Deploy button hidden)
+  [DONE] #12 Q&A history logging (Postgres qa_log; chatbot + widget via the
+             shared core; 📊 Q&A History admin tab; fail-safe)
+  [DONE] #13 Bug fixes — paraphrased-refusal detection + follow-up suppression
+             on out-of-context (refusal OR low-confidence)
   [TODO] #2 Authentication (URGENT — widget API is open), #7 SDK/temperature, #8 UX
   [DEFERRED] #9 Full tracing + admin dashboard (see below)
 
@@ -196,3 +200,41 @@ ADDED ITEMS (beyond the original 8)
    KEY LESSON (user corrected twice): non-secret tunables live in config.json,
    NOT env. And GUI/code changes require a container rebuild to show up.
 
+
+12. Q&A HISTORY LOGGING (Postgres)                         [DONE]
+   -------------------------------------------------------------------
+   Store every answered question + its response + metadata so the admin
+   can review usage. Delivered (session 2026-10-11):
+   - New compose service `db` (postgres:16-alpine, container techdoc-db,
+     internal port 5432 NOT published; named volume `pgdata` persists across
+     down/up — `down -v` wipes it). Now FIVE services total.
+   - db.py: lazy pooled psycopg3 layer. FAIL-SAFE (every fn returns a safe
+     default, never raises — a DB problem can't break answering) and FAIL-FAST
+     (a down DB is detected once, then calls are instant — no per-answer
+     latency). Auto-creates the qa_log table/indexes on first use.
+   - Logged from the SHARED generate_answer() core, so BOTH the chatbot and the
+     widget log automatically; the Streamlit answer_question path logs too.
+     Rows tagged source='chatbot'|'widget'. Columns: asked_at, source, question,
+     answer, provider, best_score, low_confidence, refusal, sources (JSONB),
+     latency_ms.
+   - Admin Console: new 6th tab '📊 Q&A History' — stats metrics, source/search/
+     limit filters, read-only table, CSV export, purge-by-retention + clear-all.
+   - CONFIG SPLIT (firm rule): DB password is a SECRET -> .env (POSTGRES_DB/
+     USER/PASSWORD, DB_HOST, DB_PORT). Non-secret toggle+retention ->
+     config.json (qa_logging_enabled=true, qa_log_retention_days=90), GUI-edited.
+   - Dependency: psycopg[binary,pool] (psycopg 3).
+
+
+13. REFUSAL / FOLLOW-UP OUT-OF-CONTEXT FIXES               [DONE]
+   -------------------------------------------------------------------
+   Two correctness fixes to out-of-context handling (session 2026-10-11):
+   - _is_refusal() broadened. Previously only matched a few fixed opening
+     phrases, so a paraphrased refusal ("I don't have any information about X")
+     was NOT caught -> the widget showed stray source-document links on a
+     question the docs don't answer. Now recognizes first-person and
+     document-subject refusal shapes (opening window, curly-apostrophe safe),
+     tuned NOT to false-positive on a real answer that mentions a gap mid-text.
+   - Follow-up suggestions suppressed on out-of-context: previously only on a
+     refusal; now ALSO on a low-confidence result (best relevance below the
+     threshold => likely not covered by the documents). Applied in BOTH the
+     shared core and the Streamlit path.
