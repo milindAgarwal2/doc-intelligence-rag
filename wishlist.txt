@@ -48,7 +48,7 @@ PROGRESS (as of session 2026-10-08):
    Our earlier note: "authentication (open port = open Claude spend)."
    Fix: Streamlit auth or an OIDC proxy; per-user access to documents.
    Why it matters: An open Streamlit port lets anyone burn your Claude
-   API spend. If the documents are internal Ericsson material, access
+   API spend. If the documents are internal/confidential material, access
    control is mandatory, not optional. Security + cost axis.
 
 

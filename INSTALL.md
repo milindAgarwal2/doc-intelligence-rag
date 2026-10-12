@@ -226,7 +226,7 @@ chat session — refresh the chatbot tab after switching.**
 static server can serve them (the UI references them, but the chat works without
 them):
 
-- `ericssonlogo.png` (sidebar logo)
+- `logo.png` (sidebar logo)
 - `AI.png` (bot avatar)
 - `users.png` (user avatar)
 - `icon.png` (alt bot avatar)

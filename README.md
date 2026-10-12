@@ -171,7 +171,7 @@ service). `config.json` is the single source of truth for logging — there are 
 logging env vars.
 
 Optional branding assets in the project root (inlined into the page as base64 at
-load time, if present): `AI.png`, `users.png`, `ericssonlogo.png`. Missing assets
+load time, if present): `AI.png`, `users.png`, `logo.png`. Missing assets
 are skipped gracefully — no broken image icons.
 
 ---
