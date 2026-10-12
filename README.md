@@ -520,6 +520,41 @@ git-ignored). It runs in-process on CPU via `llama-cpp-python` — no server, no
 
 ---
 
+## Security
+
+**Prompt-injection defense (indirect injection via document content).** A RAG app
+pastes retrieved document text into the LLM prompt, so a malicious or poisoned
+document could carry instructions like *"ignore previous instructions and…"*. The
+app defends against this:
+
+- The retrieved context is **fenced as untrusted data** between
+  `<<<BEGIN_UNTRUSTED_CONTEXT>>>` / `<<<END_UNTRUSTED_CONTEXT>>>` markers, and the
+  **system prompt establishes an instruction hierarchy**: everything inside the fence
+  is reference *data* to quote and cite, **never** instructions to obey. Any
+  directive-looking text in a document is treated as ordinary content.
+- The fence helper **strips those delimiter tokens if they appear inside a document**,
+  so a crafted document can't forge the closing marker to "break out" of the data
+  region.
+- The defense applies to **both** generative providers (Claude and Qwen); the
+  extractive (`none`) mode has no LLM and is inherently immune.
+- It's **regression-tested** in `tests/eval/test_prompt_injection.py` — structural
+  tests always run (CI-safe, no LLM), and an opt-in behavioural test (runs when a
+  provider is available) asserts the model doesn't obey an injected document, doesn't
+  leak its prompt, and still answers from the legitimate content.
+
+**Output rendering is injection-safe.** The widget inserts the answer and source
+names via `textContent` (HTML-escaped), and the Streamlit app renders the answer as
+plain markdown — `unsafe_allow_html` is used only for the app's **own** figure/table
+HTML built from local files, never for model output. So an injected answer can't
+inject active markup into the page.
+
+> **Not yet addressed (tracked as wishlist #2).** The Streamlit app and the widget
+> API are currently **open and unauthenticated**, with open CORS and no request-size
+> limits. Add auth, an origin allowlist, rate limiting, and input caps before any
+> public or multi-user deployment — especially for internal/confidential documents.
+
+---
+
 ## Validation
 
 | Action | Expected |

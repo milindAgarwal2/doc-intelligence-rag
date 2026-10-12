@@ -661,6 +661,12 @@ For anything beyond local/dev use:
   (chatbot + GUI + widget API + demo + Postgres) runs via `docker compose`, with
   health checks.
 - **Auth:** put SSO/auth in front of the UI via the reverse proxy.
+- **Prompt-injection defense:** indirect injection via document content is already
+  mitigated in-app (retrieved context is fenced as untrusted data with an
+  instruction-hierarchy system prompt; see README → Security, regression-tested in
+  `tests/eval/test_prompt_injection.py`). Still open and tracked with auth: the
+  widget API has no request-size caps and does not validate client-supplied chat
+  history — add those before any public embed.
 - **Process supervision:** run the app under systemd/supervisord/containers.
 - **Secrets:** store `ANTHROPIC_API_KEY` and `POSTGRES_PASSWORD` in a secrets
   manager, not plaintext `.env`.

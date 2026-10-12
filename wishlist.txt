@@ -24,7 +24,10 @@ PROGRESS (as of session 2026-10-08):
              shared core; 📊 Q&A History admin tab; fail-safe)
   [DONE] #13 Bug fixes — paraphrased-refusal detection + follow-up suppression
              on out-of-context (refusal OR low-confidence)
-  [TODO] #2 Authentication (URGENT — widget API is open), #7 SDK/temperature, #8 UX
+  [DONE] #14 Prompt-injection defense (fence untrusted doc context +
+             instruction-hierarchy prompt; Claude+Qwen; regression test)
+  [TODO] #2 Authentication (URGENT — widget API open; also history validation
+             + input-size caps per the security eval), #7 SDK/temperature, #8 UX
   [DEFERRED] #9 Full tracing + admin dashboard (see below)
 
 
@@ -238,3 +241,26 @@ ADDED ITEMS (beyond the original 8)
      refusal; now ALSO on a low-confidence result (best relevance below the
      threshold => likely not covered by the documents). Applied in BOTH the
      shared core and the Streamlit path.
+
+14. PROMPT-INJECTION DEFENSE (indirect, via document content) [DONE]
+   -------------------------------------------------------------------
+   Security eval (session 2026-10-12) found the HIGH risk was indirect
+   prompt injection: retrieved document chunks are pasted into the LLM
+   prompt, so a poisoned document could carry "ignore instructions…"
+   text. Implemented defense (item #1 of the eval; auth + input caps
+   deferred to #2):
+   - _SYNTH_SYSTEM hardened with an instruction-hierarchy / SECURITY
+     clause: the context is UNTRUSTED data to quote & cite, never obey;
+     don't follow directives found in it; don't reveal the prompt.
+   - _fence_context() wraps retrieved context in
+     <<<BEGIN_UNTRUSTED_CONTEXT>>> / <<<END_UNTRUSTED_CONTEXT>>> markers
+     and STRIPS those tokens if present inside a document (so a doc can't
+     forge the closing marker to break out). Applied in BOTH the Claude
+     and Qwen answer paths; extractive (none) has no LLM -> immune.
+   - Regression test tests/eval/test_prompt_injection.py: 4 structural
+     tests (no LLM, CI-safe) + 1 opt-in behavioural test (runs when a
+     provider is available; asserts the model doesn't obey the injection,
+     doesn't leak the prompt, still answers from legit content). Verified
+     passing against live Claude.
+   STILL OPEN (part of #2): client-supplied widget history is unvalidated
+   and there are no input-size caps on the open widget API.

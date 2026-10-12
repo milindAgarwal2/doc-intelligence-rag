@@ -108,8 +108,11 @@ Legend: ✅ full · ◑ partial / configurable · ⬜ not yet (roadmap) · — n
 | Secrets isolated to `.env` | ✅ | Only `ANTHROPIC_API_KEY`; non-secret config is separate |
 | Path-traversal protection on source serving | ✅ | `/api/source` serves only whitelisted extensions by basename |
 | Server-side input validation (accent color etc.) | ✅ | Blocks style/script injection |
+| **Indirect prompt-injection defense** | ✅ | Retrieved document content is fenced as untrusted data with an instruction-hierarchy system prompt; the model treats embedded "instructions" in documents as data to quote, not obey. Covers Claude + Qwen. Regression-tested |
+| Output rendering is injection-safe (XSS) | ✅ | Widget escapes answer/source text (`textContent`); Streamlit renders the answer as plain markdown (no `unsafe_allow_html` on model output) |
 | **Authentication / per-user access** | ⬜ | **Not yet — the Streamlit app and widget API are currently OPEN.** Highest-priority roadmap item |
 | API key / rate limiting on the widget API | ⬜ | Roadmap; required before any public embed |
+| Input-size caps / history validation on the widget API | ⬜ | Roadmap; pairs with auth |
 | CORS origin allowlist | ◑ | Currently `*` (demo-friendly); must be restricted for production |
 
 ---
