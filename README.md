@@ -5,6 +5,13 @@ text, but the **images** and **tables** from the source pages/slides too, with
 **source attribution** (document name + page/slide number) for explainable (XAI)
 results.
 
+![The chatbot answering a question with a table rendered inline from the source
+document, plus an inline page citation](docs/images/chatbot-inline-table.png)
+
+> *Ask a question → get a synthesized answer with the **actual table from the
+> source page** rendered inline and a `[document p.N]` citation. Most RAG apps
+> would have lost that table during ingestion.*
+
 ## The problem this solves
 
 A technical document is not just text — it has images (architecture diagrams,
@@ -258,6 +265,10 @@ Besides the standalone Streamlit chatbot, the same RAG backend is exposed as an
 It's a floating chat bubble (bottom-right) that opens a panel, talks to an HTTP API,
 and renders answers with **clickable source citations** and suggested follow-ups.
 
+![The embeddable chat widget open on a host web page, answering a question with
+inline citations, a source chip, and clickable suggested follow-up
+questions](docs/images/embeddable-widget.png)
+
 Three pieces:
 
 | Piece | File(s) | What it is |
@@ -351,6 +362,10 @@ chatbot reads these once per session (refresh the chatbot tab to apply).
 ## Embedding Manager GUI
 
 A separate Streamlit app to manage the document library without the CLI:
+
+![The Admin Console on the Documents tab — document/chunk counts, the embedded
+documents table, and the tab bar (Documents, Answer engine, Chatbot, Chat widget,
+Logging, Q&A History)](docs/images/admin-console.png)
 
 ```bash
 streamlit run embeddingGUI.py --server.port 8502
