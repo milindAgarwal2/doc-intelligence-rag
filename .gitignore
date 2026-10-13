@@ -40,15 +40,16 @@ screen/
 models/
 *.gguf
 
-# Extracted image subfolders under pdf/ (keep source PDFs themselves)
-pdf/**/
-!pdf/
-!pdf/*.pdf
-
-# Source PPTX decks: keep the decks, ignore any extracted subfolders.
-# (PPTX figures/tables are actually written under pdf/<doc>/ and table/<doc>/,
-#  which are already ignored above; this keeps the pptx/ folder tidy too.)
-pptx/**/
-!pptx/
-!pptx/*.pptx
-!pptx/*.ppt
+# Source documents are DATA, not code — and are frequently confidential
+# (internal decks, customer data, PII). Ignore the source PDFs/PPTX decks AND
+# their extracted asset subfolders by default so a real document is never
+# committed by accident. If you want to ship a deliberate, non-sensitive sample,
+# place it under pdf/samples/ or pptx/samples/ (carved out below) or force-add it
+# explicitly with `git add -f`.
+pdf/*
+pptx/*
+!pdf/samples/
+!pptx/samples/
+# Keep the folders themselves in the tree via .gitkeep (if present).
+!pdf/.gitkeep
+!pptx/.gitkeep

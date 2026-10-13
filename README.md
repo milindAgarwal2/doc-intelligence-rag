@@ -203,6 +203,16 @@ text, and embeds each table's content as a searchable chunk. First run downloads
 For **incremental** add/remove without a full rebuild, use the Embedding Manager GUI
 (below) or the `ingest_file` / `delete_document` functions.
 
+> **Newly ingested documents are retrievable immediately — no restart needed.** The
+> chatbot and the widget API are long-lived processes, while documents are ingested
+> by a *separate* process (the Embedding Manager GUI, a batch `embeddingEngine.py`
+> run, or another container). Chroma caches its in-memory vector index per process,
+> so a reader process would otherwise keep answering from a stale index and report
+> "I don't have any information about that" for a just-added document until it was
+> restarted. To prevent this, the chatbot reloads the Chroma index from disk on every
+> query (`_open_vectorstore()` clears Chroma's cached client first), so a document
+> embedded a moment ago is found on the very next question with no restart.
+
 > **PPTX note:** `python-pptx` extracts **native PowerPoint tables** and **inserted
 > raster pictures**. Charts, SmartArt, and grouped/vector graphics are not raster
 > images and are **not** extracted — reference them in text, or paste them as a
@@ -635,6 +645,7 @@ its questions auto-skip. See `tests/eval/README.md` for details.
 | Empty answers / dim mismatch | Store built with a different embedding model | `rm -rf chroma_Name` and rebuild |
 | Garbled table values | PDF table extraction imperfect on complex layouts | Verify against the source via the page number; `lines_strict` strategy reduces this |
 | Content skipped | `SKIP_PAGES` too high | Lower it in `.env` (default `0`) |
+| Just-uploaded doc "not found" / "I don't have any information" | A **different** process ingested it while a reader was running; stale per-process Chroma index | Fixed: the chatbot/API reload the index per query (`_open_vectorstore()`), so new docs are found with no restart. If you see this on an **older** build, restart the reader service |
 | Chatbot ignores a provider change | Provider is read **once per session** | Refresh the chatbot browser tab to start a new session |
 | Selected Qwen but answers are extractive | GGUF missing or `llama-cpp-python` not installed → auto-fallback | Download the GGUF to `models/` (or set `QWEN_GGUF_PATH`); `pip install -r requirements.txt` |
 | Qwen answers very slow | 1.5B model on CPU | Expected (~1–2 min/answer); use Claude for speed, or run on a GPU build of `llama-cpp-python` |

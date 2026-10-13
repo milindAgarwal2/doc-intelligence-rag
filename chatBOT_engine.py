@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import chromadb
 from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
@@ -49,15 +50,41 @@ def getdirname(filepath):
     return base
 
 
-def retrieve_docs(user_question):
-    """Vector-search the Chroma store for chunks relevant to the question."""
+def _open_vectorstore():
+    """Open the persisted Chroma store, always reading the LATEST on-disk index.
+
+    Why the cache-bust: chromadb caches its client/System (and the in-memory
+    HNSW vector index) per `persist_directory` for the *lifetime of the
+    process*. The chatbot is a long-lived process, while documents are ingested
+    by a SEPARATE process (the Embedding Manager GUI, the batch `embeddingEngine`
+    run, or another container). When that other process appends vectors, the
+    chatbot's cached HNSW segment is NOT reloaded: `collection.count()` updates
+    (it reads SQLite), but *similarity search silently misses the new vectors*.
+    The symptom is a freshly uploaded document that the chatbot "can't find" and
+    answers "I don't have any information about that" — until the chatbot is
+    restarted. (See the staleness repro in the session notes.)
+
+    Clearing chromadb's shared system cache before opening forces the index to
+    be reloaded from disk, so a just-ingested document is immediately
+    retrievable with no restart. This runs once per answered question — cheap
+    relative to embedding + generation.
+    """
+    try:
+        chromadb.api.client.SharedSystemClient.clear_system_cache()
+    except Exception as ex:  # never let a cache-bust failure break answering
+        logger.warning("could not clear chromadb system cache: %s", ex)
     embedding_function = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
-    vectorstore = Chroma(
+    return Chroma(
         "Project_NAME",
         persist_directory="./chroma_Name",
         embedding_function=embedding_function,
         collection_metadata={"hnsw:space": "cosine"},
     )
+
+
+def retrieve_docs(user_question):
+    """Vector-search the Chroma store for chunks relevant to the question."""
+    vectorstore = _open_vectorstore()
     # MMR (max-marginal-relevance) retrieval: pull a wider candidate set
     # (fetch_k) then select k results that are both relevant AND diverse. This
     # improves recall of a defining chunk that pure top-k similarity can miss,
@@ -81,13 +108,7 @@ def confidence_probe(user_question):
     Higher = more similar (cosine relevance). Returns None if scoring is
     unavailable (e.g. empty store) so callers can skip the banner gracefully.
     """
-    embedding_function = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
-    vectorstore = Chroma(
-        "Project_NAME",
-        persist_directory="./chroma_Name",
-        embedding_function=embedding_function,
-        collection_metadata={"hnsw:space": "cosine"},
-    )
+    vectorstore = _open_vectorstore()
     try:
         scored = vectorstore.similarity_search_with_relevance_scores(
             user_question, k=1

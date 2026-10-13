@@ -495,6 +495,7 @@ doc-intelligence-rag/
 | `streamlit: command not found` | venv not active / deps missing | `source .venv/bin/activate`, reinstall deps |
 | `spire` / `fitz` import error on ingest | Ingestion deps missing | Ensure `Spire.PDF` + `PyMuPDF` installed |
 | Content seems skipped | `SKIP_PAGES` set too high | Lower `SKIP_PAGES` in `.env` (default `0` processes all pages) |
+| Just-uploaded doc "not found" / "I don't have any information" | Reader held a stale per-process Chroma index after another process ingested the doc | Fixed: readers reload the index per query (`_open_vectorstore()`); if seen on an older build, restart the reader service |
 | Provider change not applied | Provider read once per session | Refresh the chatbot tab for a new session |
 | Selected Qwen but answers are extractive | GGUF missing / `llama-cpp-python` not built → auto-fallback | Download the GGUF to `models/` (or set `QWEN_GGUF_PATH`); `pip install -r requirements.txt` |
 | Qwen very slow | 1.5B model on CPU | Expected (~1–2 min/answer); use Claude for speed |
@@ -538,6 +539,14 @@ runtime data (vector store, extracted assets, uploads, config, Qwen model, logs)
 through host-mounted volumes — so a document embedded in the Admin Console is
 immediately queryable in the chatbot and the widget, and everything persists across
 restarts.
+
+> **Cross-process freshness, no restart.** The GUI, chatbot, and widget API are
+> separate long-lived processes sharing the same on-disk Chroma store. Because Chroma
+> caches its vector index per process, a reader (chatbot/API) would otherwise keep
+> answering from a stale index after the GUI ingested a new document — reporting "I
+> don't have any information about that" until restarted. The readers reload the
+> index from disk on every query (`_open_vectorstore()` clears Chroma's cached
+> client), so a just-uploaded document is retrievable on the next question.
 
 | Service | URL | Container | What |
 |---|---|---|---|
