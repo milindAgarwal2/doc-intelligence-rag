@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Using an LLM to retrieve text, tables and images in a chatbot with RAG</title>
+  <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Using an LLM to retrieve text, tables and images in a
+chatbot with RAG</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#using-an-llm-to-retrieve-text-tables-and-images-in-a-chatbot-with-rag-the-multimodal-grounded-selfhosted-rewrite"
+id="toc-using-an-llm-to-retrieve-text-tables-and-images-in-a-chatbot-with-rag-the-multimodal-grounded-selfhosted-rewrite">Using
+an LLM to retrieve text, tables <strong>and</strong> images in a chatbot
+with RAG — the multi‑modal, grounded, self‑hosted rewrite</a>
+<ul>
+<li><a href="#the-problem-this-solves-still-the-whole-point"
+id="toc-the-problem-this-solves-still-the-whole-point">The problem this
+solves (still the whole point)</a></li>
+<li><a href="#the-big-picture-how-it-works-in-three-parts"
+id="toc-the-big-picture-how-it-works-in-three-parts">The big picture
+(how it works in three parts)</a></li>
+<li><a href="#what-changed-since-the-2025-article-the-honest-changelog"
+id="toc-what-changed-since-the-2025-article-the-honest-changelog">What
+changed since the 2025 article (the honest changelog)</a></li>
+<li><a href="#part-1-ingestion-now-smarter-and-formatagnostic"
+id="toc-part-1-ingestion-now-smarter-and-formatagnostic">Part 1:
+Ingestion — now smarter, and format‑agnostic</a></li>
+<li><a href="#part-2-the-chatbot-grounded-conversational-and-inline"
+id="toc-part-2-the-chatbot-grounded-conversational-and-inline">Part 2:
+The chatbot — grounded, conversational, and inline</a></li>
+<li><a href="#part-3-new-an-embeddable-chat-widget-for-any-website"
+id="toc-part-3-new-an-embeddable-chat-widget-for-any-website">Part 3
+(new): An embeddable chat widget for any website</a></li>
+<li><a
+href="#security-defending-a-rag-app-from-the-documents-themselves"
+id="toc-security-defending-a-rag-app-from-the-documents-themselves">Security:
+defending a RAG app from the documents themselves</a></li>
+<li><a href="#running-it-so-much-simpler-now"
+id="toc-running-it-so-much-simpler-now">Running it (so much simpler
+now)</a></li>
+<li><a href="#proving-it-works-an-offline-evaluation-harness"
+id="toc-proving-it-works-an-offline-evaluation-harness">Proving it
+works: an offline evaluation harness</a></li>
+<li><a href="#observability-you-can-finally-see-what-the-bot-did"
+id="toc-observability-you-can-finally-see-what-the-bot-did">Observability:
+you can finally see what the bot did</a></li>
+<li><a href="#honest-limitations-the-questions-a-sharp-reader-will-ask"
+id="toc-honest-limitations-the-questions-a-sharp-reader-will-ask">Honest
+limitations (the questions a sharp reader will ask)</a></li>
+<li><a href="#how-it-compares-to-other-rag-approaches"
+id="toc-how-it-compares-to-other-rag-approaches">How it compares to
+other RAG approaches</a></li>
+<li><a href="#why-bother-keeping-tables-and-images"
+id="toc-why-bother-keeping-tables-and-images">Why bother keeping tables
+and images?</a></li>
+<li><a href="#toolset-2026" id="toc-toolset-2026">Toolset
+(2026)</a></li>
+<li><a href="#references" id="toc-references">References</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="using-an-llm-to-retrieve-text-tables-and-images-in-a-chatbot-with-rag-the-multimodal-grounded-selfhosted-rewrite">Using
+an LLM to retrieve text, tables <strong>and</strong> images in a chatbot
+with RAG — the multi‑modal, grounded, self‑hosted rewrite</h1>
+<p><em>By Milind Agarwal · ~15 min read</em></p>
+<blockquote>
+<p><strong>A note on this edition.</strong> I first published this
+article in January 2025 with a simple idea: a technical document is more
+than text, so a chatbot that answers questions about it shouldn’t throw
+away the tables and images during ingestion. That core idea still stands
+— but almost everything <em>around</em> it has grown up since. What
+started as two Python files and an <code>http.server</code> for avatars
+is now a self‑hostable product: local offline embeddings, a pluggable
+answer engine (cloud <strong>or</strong> a local offline model
+<strong>or</strong> no model at all), PowerPoint support, grounded “I
+don’t know” answers with per‑claim citations, an embeddable one‑line
+chat widget for any website, a Docker Compose stack, Postgres Q&amp;A
+logging, prompt‑injection defense, and an offline evaluation harness.
+This is the 2026 rewrite. If you read the original, you’ll recognize the
+heart of it — it just wears a lot more armor now.</p>
+</blockquote>
+<hr />
+<h2 id="the-problem-this-solves-still-the-whole-point">The problem this
+solves (still the whole point)</h2>
+<p>In a technical document there is not just text, but images and tables
+too. Those images carry important information — architecture diagrams,
+formulas, flowcharts. The tables carry specifications, parameters,
+limits. Very often these images and tables convey <em>more</em> value
+than the prose around them.</p>
+<p>If you build a chatbot to query such documents with a plain RAG
+approach, you first create a vector database — embeddings of chunks of
+the document’s <strong>text</strong>. During that embedding step the
+image and table information is simply ignored and lost. Even if you
+scrape the text out of a table, you lose the table’s
+<strong>structure</strong>. So when you query that store, all you get
+back is text — minus the images, minus the tables. Which is frequently
+unhelpful to the end user, and doesn’t exactly inspire confidence in the
+answer.</p>
+<p>What if we could retrieve the tables and images too? That was the
+original ask, and the approach is the same: be a little <strong>smart
+during ingestion</strong> (extract and save the tables/images, keyed by
+document + page), and use a little <strong>ingenuity at query
+time</strong> (reconstruct those assets from metadata and render them
+inline next to the answer). Keep the page number and document name
+attached to everything, so every answer is <strong>explainable</strong>
+— the user can jump straight to the source page. That’s the XAI
+(explainable AI) angle, and it matters more than ever.</p>
+<p><img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/plain-vs-multimodal.png"
+alt="Plain RAG discards tables and images; this approach preserves them and embeds table content as its own chunk" />
+<em>The same source document, two pipelines. Plain RAG (left) embeds
+only text, so tables are flattened and images are discarded — the query
+returns text alone. This approach (right) keeps the tables and images
+and even embeds each table’s content as its own searchable chunk, so the
+answer comes back grounded, with the real table/figure inline and a page
+citation.</em></p>
+<p>What’s new is <em>how well</em> we can do all of this now, and how
+production‑ready the whole thing has become. Let me walk you through it.
+As before — bear with me to the end. 🙂</p>
+<hr />
+<h2 id="the-big-picture-how-it-works-in-three-parts">The big picture
+(how it works in three parts)</h2>
+<p>The original article had two parts: ingestion and the chatbot.
+There’s now a third.</p>
+<ul>
+<li><strong>Part 1 — Ingestion
+(<code>embeddingEngine.py</code>).</strong> For each <strong>PDF page or
+PPTX slide</strong>, extract text, tables, and images. Embed the text —
+<em>and the table content itself</em> — into a Chroma vector store with
+metadata. Save tables and images to disk keyed by document + page. A
+small dispatcher routes <code>.pdf</code> and <code>.pptx</code> to the
+right extractor; <strong>slides map to page numbers</strong>, so
+everything downstream treats a deck exactly like a PDF.</li>
+<li><strong>Part 2 — Chatbot (<code>chatBOT_engine.py</code>).</strong>
+A Streamlit chat app. For a follow‑up question it first
+<strong>rewrites</strong> the question into a standalone query using
+recent history, runs MMR vector search, then <strong>streams a single
+synthesized answer</strong> grounded in the retrieved context with
+inline <code>[document p.N]</code> citations. Based on sidebar toggles
+it also reconstructs and renders the images/tables from the
+<strong>cited</strong> pages, offers a download of each cited source,
+and suggests clickable follow‑ups.</li>
+<li><strong>Part 3 — Embeddable widget (<code>api_server.py</code> +
+<code>widget/</code>).</strong> The <em>same</em> retrieval and answer
+logic (via a shared, UI‑free <code>generate_answer()</code>) exposed
+over an HTTP API (FastAPI) plus a one‑line JavaScript widget that drops
+a floating chat bubble onto <em>any</em> website.</li>
+</ul>
+<p><img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/architecture.png"
+alt="End-to-end architecture: ingestion, shared storage, and the query side with two front-ends" />
+<em>The whole pipeline at a glance: ingestion (left) extracts text,
+tables, and images and splits them between the Chroma vector store and
+an on-disk sidecar store; the query side (right) retrieves, generates a
+grounded answer with a pluggable engine, and renders it — the same
+<code>generate_answer()</code> core feeding both the Streamlit app and
+the embeddable widget.</em></p>
+<p><img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/chatbot-inline-table.png"
+alt="The chatbot answering with a table rendered inline from the source page, plus a page citation" />
+<em>Ask a question → get a synthesized answer with the <strong>actual
+table from the source page</strong> rendered inline, and a
+<code>[document p.N]</code> citation. Most RAG apps would have lost that
+table during ingestion.</em></p>
+<hr />
+<h2 id="what-changed-since-the-2025-article-the-honest-changelog">What
+changed since the 2025 article (the honest changelog)</h2>
+<p>If you only read one section, read this one.</p>
+<figure>
+<img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/table-changelog.png"
+alt="What changed since the 2025 article — a changelog comparing the original and the 2026 rewrite across embeddings, answer engine, formats, citations, groundedness, deployment, security and more" />
+<figcaption aria-hidden="true">What changed since the 2025 article — a
+changelog comparing the original and the 2026 rewrite across embeddings,
+answer engine, formats, citations, groundedness, deployment, security
+and more</figcaption>
+</figure>
+<p>Let’s go through the ones that change how you’d <em>build</em>
+this.</p>
+<hr />
+<h2 id="part-1-ingestion-now-smarter-and-formatagnostic">Part 1:
+Ingestion — now smarter, and format‑agnostic</h2>
+<h3 id="local-offline-embeddings-goodbye-pytorch">Local, offline
+embeddings (goodbye PyTorch)</h3>
+<p>The original used
+<code>SentenceTransformerEmbeddings(model_name="all-mpnet-base-v2")</code>,
+which pulls in PyTorch. The rewrite uses
+<strong><code>fastembed</code></strong>, which runs the embedding model
+as ONNX — no PyTorch, smaller install, fully offline after a one‑time
+~130 MB model download. The vector store construction is centralized in
+one function that ingestion and the chatbot both call, so the embedding
+model can never drift between write and read (a classic “empty answers /
+dimension mismatch” footgun):</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> langchain_community.embeddings.fastembed <span class="im">import</span> FastEmbedEmbeddings</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> langchain_chroma <span class="im">import</span> Chroma</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> get_vectorstore():</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;Return the shared Chroma vector store (same config everywhere).&quot;&quot;&quot;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    embedding_function <span class="op">=</span> FastEmbedEmbeddings(model_name<span class="op">=</span><span class="st">&quot;BAAI/bge-small-en-v1.5&quot;</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> Chroma(</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;Project_NAME&quot;</span>,</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        embedding_function,</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;./chroma_Name&quot;</span>,</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        collection_metadata<span class="op">=</span>{<span class="st">&quot;hnsw:space&quot;</span>: <span class="st">&quot;cosine&quot;</span>},</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    )</span></code></pre></div>
+<h3 id="one-dispatcher-two-formats-pdf-and-powerpoint">One dispatcher,
+two formats (PDF <em>and</em> PowerPoint)</h3>
+<p>The original was PDF‑only and noted you <em>could</em> extend it. I
+did. A tiny dispatcher routes files to the right extractor, and — this
+is the trick that keeps everything downstream simple — <strong>a slide’s
+index is treated as its page number</strong>. So a deck behaves exactly
+like a PDF everywhere else in the app:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> ingest_file(filepath, vectorstore):</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    lower <span class="op">=</span> filepath.lower()</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> lower.endswith(<span class="st">&quot;.pdf&quot;</span>):</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> ingest_pdf(filepath, vectorstore)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> lower.endswith((<span class="st">&quot;.pptx&quot;</span>, <span class="st">&quot;.ppt&quot;</span>)):</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> ingest_pptx(filepath, vectorstore)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="ss">f&quot;Unsupported file type: </span><span class="sc">{</span>filepath<span class="sc">}</span><span class="ss">&quot;</span>)</span></code></pre></div>
+<p><code>python-pptx</code> gives us slide text, <strong>native
+PowerPoint tables</strong>, and <strong>inserted raster
+pictures</strong>. (Charts, SmartArt, and vector graphics aren’t raster
+images, so they aren’t extracted — reference them in text, or paste them
+as a picture if you need them rendered.)</p>
+<h3 id="the-pageasanchor-sidecar-store-unchanged-idea-cleaner-code">The
+“page‑as‑anchor” sidecar store (unchanged idea, cleaner code)</h3>
+<p>The join key between embedded text and non‑text assets is still
+<strong><code>file_name</code> + <code>pagenumber</code></strong>. Every
+text chunk is embedded with metadata flags saying whether its page has
+an image/table, and the assets live on disk at predictable paths:</p>
+<figure>
+<img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/table-sidecar.png"
+alt="The page-as-anchor sidecar store: text goes to Chroma, tables are pickled DataFrames, images are PNGs — all keyed by document and page" />
+<figcaption aria-hidden="true">The page-as-anchor sidecar store: text
+goes to Chroma, tables are pickled DataFrames, images are PNGs — all
+keyed by document and page</figcaption>
+</figure>
+<h3 id="tables-are-now-semantically-searchable-not-just-stored">Tables
+are now semantically searchable (not just stored)</h3>
+<p>This is one of my favorite upgrades. In 2025 I saved the table to
+disk but only embedded the <em>prose</em> on the page — so if the answer
+lived <strong>inside</strong> the table, a content query might never
+pull that page. Now each extracted table is flattened to a label‑rich
+text form and embedded as its <strong>own</strong> chunk
+(<code>contentType: "table"</code>):</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> table_to_text(df):</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;Convert an extracted table to a flat text representation for embedding —</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">    cell values matter more than exact layout. The first row is the header, so</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">    we emit lines like &#39;&lt;header&gt;: &lt;value&gt; | &lt;header&gt;: &lt;value&gt;&#39; and a query</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co">    matching cell values retrieves the table&#39;s page.&quot;&quot;&quot;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    rows <span class="op">=</span> df.values.tolist()</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> rows:</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="st">&quot;&quot;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    header <span class="op">=</span> [(<span class="st">&quot;&quot;</span> <span class="cf">if</span> c <span class="kw">is</span> <span class="va">None</span> <span class="cf">else</span> <span class="bu">str</span>(c).replace(<span class="st">&quot;</span><span class="ch">\n</span><span class="st">&quot;</span>, <span class="st">&quot; &quot;</span>).strip()) <span class="cf">for</span> c <span class="kw">in</span> rows[<span class="dv">0</span>]]</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    lines <span class="op">=</span> [<span class="st">&quot;Table columns: &quot;</span> <span class="op">+</span> <span class="st">&quot; | &quot;</span>.join(h <span class="cf">for</span> h <span class="kw">in</span> header <span class="cf">if</span> h)]</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> row <span class="kw">in</span> rows[<span class="dv">1</span>:]:</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        cells <span class="op">=</span> []</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> idx, val <span class="kw">in</span> <span class="bu">enumerate</span>(row):</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>            text <span class="op">=</span> <span class="st">&quot;&quot;</span> <span class="cf">if</span> val <span class="kw">is</span> <span class="va">None</span> <span class="cf">else</span> <span class="bu">str</span>(val).replace(<span class="st">&quot;</span><span class="ch">\n</span><span class="st">&quot;</span>, <span class="st">&quot; &quot;</span>).strip()</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> <span class="kw">not</span> text:</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>                <span class="cf">continue</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>            label <span class="op">=</span> header[idx] <span class="cf">if</span> idx <span class="op">&lt;</span> <span class="bu">len</span>(header) <span class="kw">and</span> header[idx] <span class="cf">else</span> <span class="ss">f&quot;col</span><span class="sc">{</span>idx<span class="sc">}</span><span class="ss">&quot;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>            cells.append(<span class="ss">f&quot;</span><span class="sc">{</span>label<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>text<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> cells:</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>            lines.append(<span class="st">&quot; | &quot;</span>.join(cells))</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="st">&quot;</span><span class="ch">\n</span><span class="st">&quot;</span>.join(lines)</span></code></pre></div>
+<p>So now “what’s the VBUS current?” can retrieve a page <em>because the
+number is in a table cell</em>, not because the prose happened to
+mention it.</p>
+<h3
+id="reembedding-is-a-safe-upsert-no-more-reset_collection">Re‑embedding
+is a safe upsert (no more <code>reset_collection()</code>)</h3>
+<p>The original reset the whole collection on every run to avoid
+duplicates — fine for a full rebuild, terrible for incrementally adding
+one document. Now every document is content‑addressed by a SHA‑256 of
+its bytes, stored on each chunk as <code>doc_hash</code>:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> compute_doc_hash(filepath):</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;A content-addressed ID: SHA-256 of the raw bytes. Same bytes (even under a</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co">    different name) → same hash, so a no-op re-embed is detected and skipped.</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co">    Streamed in blocks so big files don&#39;t load fully into memory.&quot;&quot;&quot;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    h <span class="op">=</span> hashlib.sha256()</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> <span class="bu">open</span>(filepath, <span class="st">&quot;rb&quot;</span>) <span class="im">as</span> f:</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> block <span class="kw">in</span> <span class="bu">iter</span>(<span class="kw">lambda</span>: f.read(<span class="dv">1024</span> <span class="op">*</span> <span class="dv">1024</span>), <span class="st">b&quot;&quot;</span>):</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>            h.update(block)</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> h.hexdigest()</span></code></pre></div>
+<p>Re‑embedding <strong>identical</strong> content is a no‑op.
+Re‑embedding <strong>changed</strong> content (or the same filename with
+new bytes) deletes the old chunks + stale assets first, then re‑adds.
+Duplicates never accumulate — and you never nuke your whole store to add
+one file.</p>
+<hr />
+<h2 id="part-2-the-chatbot-grounded-conversational-and-inline">Part 2:
+The chatbot — grounded, conversational, and inline</h2>
+<h3 id="from-perchunk-summaries-to-one-synthesized-grounded-answer">From
+per‑chunk summaries to one synthesized, grounded answer</h3>
+<p>The 2025 version ran each retrieved chunk through a BART summarizer
+and concatenated the results. It was honest about the trade‑off —
+detailed but not clean. The rewrite retrieves with <strong>MMR</strong>
+(<code>k=8, fetch_k=24, lambda_mult=0.6</code>, for better recall and
+less near‑duplicate noise) and produces <strong>one</strong> synthesized
+answer that <strong>streams in</strong>, with inline
+<code>[document p.N]</code> citations for each claim.</p>
+<p>Crucially, it’s <strong>grounded</strong>: if the retrieved context
+doesn’t contain the answer, the assistant says it doesn’t know rather
+than inventing something. On such a refusal it shows <strong>no</strong>
+source downloads, figures, or follow‑ups (those would reflect off‑topic
+chunks, not your question). A <strong>low‑confidence banner</strong>
+appears when the best retrieval score falls below a configurable
+threshold (default <strong>0.63</strong>, which — nice touch — is backed
+by the evaluation harness, not guessed).</p>
+<h3 id="the-answer-engine-is-pluggable-and-can-be-no-engine">The answer
+engine is pluggable (and can be <em>no</em> engine)</h3>
+<p>This is the biggest conceptual change. The answer backend is
+<strong>single‑select</strong>, chosen in the admin GUI and stored in
+<code>config.json</code>. The chatbot reads it once per session and uses
+it transparently — chat users never see or pick the engine:</p>
+<figure>
+<img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/table-providers.png"
+alt="The pluggable answer engine: Claude (API, best quality), Qwen 1.5B (local, offline), and None (extractive, zero-cost) — with their requirements and trade-offs" />
+<figcaption aria-hidden="true">The pluggable answer engine: Claude (API,
+best quality), Qwen 1.5B (local, offline), and None (extractive,
+zero-cost) — with their requirements and trade-offs</figcaption>
+</figure>
+<p>And there’s an <strong>auto‑fallback</strong>: if the selected
+provider isn’t actually available at runtime (missing key, missing
+GGUF), it silently falls back to extractive so the app never breaks. A
+fresh clone defaults to <code>none</code> and runs with no key and no
+model download. This means the whole thing can run <strong>100%
+offline</strong> (local embeddings + Qwen or extractive = no outbound
+calls) — which matters a lot for confidential docs.</p>
+<h3 id="followups-that-actually-understand-context">Follow‑ups that
+actually understand context</h3>
+<p>Ask “What’s the Pico’s VBUS current?” then “What about at 85°C?” —
+the second question is meaningless to a retriever on its own. So before
+searching, the app <strong>rewrites</strong> it into a standalone query
+using recent history:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> rewrite_query(question, messages, provider):</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;Rewrite a context-dependent follow-up into a standalone retrieval query</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co">    using recent chat history. No-ops for the first turn, clearly self-contained</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co">    questions, or extractive mode.&quot;&quot;&quot;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> provider <span class="op">==</span> <span class="st">&quot;none&quot;</span>:</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> question</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> _needs_rewrite(question, messages):</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> question</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    history <span class="op">=</span> _recent_history_text(messages)</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> history:</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> question</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    system <span class="op">=</span> (</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;You rewrite a user&#39;s latest message into a single standalone search &quot;</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;query by resolving pronouns and references using the conversation. &quot;</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;Output ONLY the rewritten query as one line — no preamble, no quotes. &quot;</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;If the message is already self-contained, output it unchanged.&quot;</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>    user <span class="op">=</span> <span class="ss">f&quot;Conversation:</span><span class="ch">\n</span><span class="sc">{</span>history<span class="sc">}</span><span class="ch">\n\n</span><span class="ss">Latest message: </span><span class="sc">{</span>question<span class="sc">}</span><span class="ch">\n\n</span><span class="ss">Standalone query:&quot;</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>    rewritten <span class="op">=</span> _complete(system, user, provider, max_tokens<span class="op">=</span><span class="dv">80</span>)</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>    lines <span class="op">=</span> [ln.strip() <span class="cf">for</span> ln <span class="kw">in</span> (rewritten <span class="kw">or</span> <span class="st">&quot;&quot;</span>).splitlines() <span class="cf">if</span> ln.strip()]</span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>    rewritten <span class="op">=</span> lines[<span class="dv">0</span>].strip(<span class="st">&#39;&quot;&#39;</span>).strip() <span class="cf">if</span> lines <span class="cf">else</span> <span class="st">&quot;&quot;</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> rewritten <span class="kw">or</span> <span class="bu">len</span>(rewritten) <span class="op">&gt;</span> <span class="dv">300</span>:   <span class="co"># guard against junk rewrites</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> question</span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> rewritten</span></code></pre></div>
+<p>The app also suggests clickable follow‑up questions under each answer
+(suppressed when the question was out of context or low‑confidence).</p>
+<h3 id="assets-render-inline-no-more-companion-web-server">Assets render
+inline — no more companion web server</h3>
+<p>In 2025 the templates linked to
+<code>http://localhost:8000/AI.png</code> and friends, so you had to run
+<code>python -m http.server 8000</code> in a second terminal just to see
+avatars and download links. Now <strong>images, source PDFs, and tables
+are inlined directly into the page</strong> — images and PDFs as base64
+<code>data:</code> URIs, tables as HTML — so <strong>no static file
+server is needed</strong>. One service runs the whole chatbot. (Very
+large source PDFs &gt;8 MB are shown as a plain filename label instead
+of an inline download, to keep the page light.) And attribution is
+scoped to the pages the answer <strong>actually cited</strong>, so a
+chunk retrieval pulled in but the answer didn’t use won’t leave a stray
+asset behind.</p>
+<p>There’s also a <strong>“Prepare PDF of chat”</strong> button that
+exports the whole conversation — images and tables included — via
+<code>xhtml2pdf</code>.</p>
+<hr />
+<h2 id="part-3-new-an-embeddable-chat-widget-for-any-website">Part 3
+(new): An embeddable chat widget for any website</h2>
+<p>The same RAG backend is now exposed as a one‑line embeddable widget.
+A site owner adds a single tag before <code>&lt;/body&gt;</code>:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span> <span class="er">src</span><span class="ot">=</span><span class="st">&quot;https://YOUR_HOST/widget/widget.js&quot;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ot">        data-api=</span><span class="st">&quot;https://YOUR_HOST/api&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<p>That drops a floating chat bubble on the page which talks to a
+<strong>FastAPI</strong> backend (<code>POST /api/chat</code>,
+<code>GET /api/health</code>, <code>GET /api/source/{name}</code>) and
+renders answers with clickable source citations and suggested
+follow‑ups. The widget and the Streamlit app share the <strong>exact
+same</strong> <code>generate_answer()</code> core — there’s no second
+implementation to keep in sync.</p>
+<figure>
+<img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/embeddable-widget.png"
+alt="The embeddable widget open on a host page with inline citations and suggested follow-ups" />
+<figcaption aria-hidden="true">The embeddable widget open on a host page
+with inline citations and suggested follow-ups</figcaption>
+</figure>
+<p>The <code>/api/source/{name}</code> endpoint only serves whitelisted
+document types by basename, with path‑traversal protection. A demo site
+(a fake third‑party page on a different origin) is included to prove the
+cross‑origin embed works.</p>
+<blockquote>
+<p><strong>Honest caveat (and my top roadmap item):</strong> the API and
+Streamlit app are currently <strong>open and unauthenticated</strong>,
+with open CORS. That’s fine for a local demo, but before any public or
+multi‑user deployment you must add auth, an origin allowlist, rate
+limiting, and request‑size caps — especially for internal/confidential
+material.</p>
+</blockquote>
+<hr />
+<h2
+id="security-defending-a-rag-app-from-the-documents-themselves">Security:
+defending a RAG app from the documents themselves</h2>
+<p>A RAG app pastes retrieved document text straight into the LLM
+prompt. So a poisoned document could carry text like <em>“ignore
+previous instructions and…”</em> — an <strong>indirect prompt
+injection</strong>. The rewrite defends against this by fencing the
+retrieved context as untrusted data and establishing an instruction
+hierarchy in the system prompt (everything inside the fence is <em>data
+to quote and cite</em>, never instructions to obey):</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> _fence_context(context):</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;Wrap retrieved context in untrusted-data delimiters referenced by the</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="co">    system prompt. Any occurrence of the delimiter tokens *inside* the document</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="co">    is stripped first, so a malicious document can&#39;t forge the closing marker to</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="co">    escape the data region and inject trusted instructions.&quot;&quot;&quot;</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    safe <span class="op">=</span> (context <span class="kw">or</span> <span class="st">&quot;&quot;</span>).replace(_CTX_BEGIN, <span class="st">&quot;&quot;</span>).replace(_CTX_END, <span class="st">&quot;&quot;</span>)</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="ss">f&quot;</span><span class="sc">{</span>_CTX_BEGIN<span class="sc">}</span><span class="ch">\n</span><span class="sc">{</span>safe<span class="sc">}</span><span class="ch">\n</span><span class="sc">{</span>_CTX_END<span class="sc">}</span><span class="ss">&quot;</span></span></code></pre></div>
+<p>The defense applies to both generative providers (extractive mode has
+no LLM, so it’s inherently immune), and it’s regression‑tested. Output
+rendering is injection‑safe too: the widget inserts text via
+<code>textContent</code> (HTML‑escaped), and the Streamlit app only uses
+<code>unsafe_allow_html</code> for its <em>own</em> figure/table HTML
+built from local files — never for model output.</p>
+<hr />
+<h2 id="running-it-so-much-simpler-now">Running it (so much simpler
+now)</h2>
+<h3 id="one-command-locally">One command, locally</h3>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv .venv <span class="kw">&amp;&amp;</span> <span class="bu">source</span> .venv/bin/activate</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">--upgrade</span> pip <span class="kw">&amp;&amp;</span> <span class="ex">pip</span> install <span class="at">-r</span> requirements.txt   <span class="co"># there IS a requirements.txt now</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> .env.example .env            <span class="co"># add ANTHROPIC_API_KEY only if you want Claude</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> pdf pptx <span class="kw">&amp;&amp;</span> <span class="fu">cp</span> /path/to/<span class="pp">*</span>.pdf pdf/ <span class="kw">&amp;&amp;</span> <span class="fu">cp</span> /path/to/<span class="pp">*</span>.pptx pptx/</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> embeddingEngine.py       <span class="co"># build store + extract images/tables</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="ex">streamlit</span> run chatBOT_engine.py <span class="co"># → http://localhost:8501</span></span></code></pre></div>
+<p>No second terminal for a file server. No PyTorch. No API key unless
+you opt into Claude.</p>
+<h3 id="the-whole-stack-in-docker">The whole stack in Docker</h3>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> .env.example .env</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> compose up <span class="at">--build</span></span></code></pre></div>
+<p>That brings up <strong>five services</strong>: the chatbot
+(<code>:8501</code>), the admin GUI (<code>:8502</code>), the widget API
+(<code>:8000</code>), a demo site (<code>:9000</code>), and a Postgres
+<code>db</code> for Q&amp;A logging. Config lives in a mounted
+<code>config.json</code>, so you can retune the app without a
+redeploy.</p>
+<h3 id="a-web-admin-console-no-cli-required">A web admin console (no CLI
+required)</h3>
+<p>Upload or delete documents (with a pages/tables/images summary), pick
+the answer engine, tune the confidence threshold, edit every piece of
+user‑facing text, set the widget theme, configure logging, and browse
+the Q&amp;A history — all from a tabbed Streamlit UI.</p>
+<figure>
+<img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/admin-console.png"
+alt="The admin console on the Documents tab" />
+<figcaption aria-hidden="true">The admin console on the Documents
+tab</figcaption>
+</figure>
+<hr />
+<h2 id="proving-it-works-an-offline-evaluation-harness">Proving it
+works: an offline evaluation harness</h2>
+<p>I added something the original lacked entirely — a way to
+<strong>measure</strong> retrieval quality with evidence, so I can catch
+regressions and tune settings instead of guessing. It’s
+<strong>embedding‑only (no LLM calls, no API cost)</strong> and drives
+the same functions the chatbot uses:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> tests.eval.run              <span class="co"># human-readable report + pass/fail</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> tests.eval.run <span class="at">--json</span> out.json</span></code></pre></div>
+<p>It reports two things:</p>
+<ul>
+<li><strong>Retrieval recall@k</strong> — for each ground‑truth
+question, is the expected page in the top‑k retrieved chunks? It exits
+non‑zero below a <code>recall_floor</code>, so retrieval regressions are
+caught in CI before users see them.</li>
+<li><strong>Confidence calibration</strong> — the score distributions
+for in‑corpus vs off‑topic questions, and a <strong>suggested
+<code>low_confidence_threshold</code></strong> sitting in the gap
+between them. (That’s where the 0.63 default came from: in‑corpus min
+≈0.65, off‑topic max ≈0.61.)</li>
+</ul>
+<p>The reference set is plain JSON of human‑asserted question→page
+pairs, and it adapts to a changing store — a question whose document
+isn’t currently embedded is skipped, not failed.</p>
+<hr />
+<h2
+id="observability-you-can-finally-see-what-the-bot-did">Observability:
+you can finally see what the bot did</h2>
+<p>Every answered question logs <strong>one structured line</strong>
+(provider, retrieval breadth, best relevance score,
+low‑confidence/refusal flags, source count, latency), and — for both the
+chatbot and the widget — a row in a Postgres <code>qa_log</code> table
+(<code>asked_at</code>, <code>source</code>, <code>question</code>,
+<code>answer</code>, <code>provider</code>, <code>best_score</code>,
+<code>sources</code> as JSONB, <code>latency_ms</code>, …). Logging is
+<strong>fail‑safe</strong>: if Postgres is unreachable, answering still
+works and the write silently no‑ops, failing fast so it never adds
+latency. The admin console’s Q&amp;A History tab gives you stats,
+filters, a read‑only table, CSV export, and retention purge.</p>
+<hr />
+<h2 id="honest-limitations-the-questions-a-sharp-reader-will-ask">Honest
+limitations (the questions a sharp reader will ask)</h2>
+<ul>
+<li><strong>No authentication yet.</strong> The app and widget API are
+open — top‑priority before any public/multi‑user deployment.</li>
+<li><strong>The widget is text + citations only</strong> today — no
+streaming, no inline figures/tables (the Streamlit app has all
+three).</li>
+<li><strong>No OCR</strong> — scanned/image‑only PDFs aren’t
+text‑extracted.</li>
+<li><strong>Non‑raster graphics</strong> (charts, SmartArt, vector art)
+aren’t extracted as images.</li>
+<li><strong>Local Qwen is slow on CPU</strong> (~1–2 min/answer) and may
+omit inline citation markers — use Claude when speed and strict
+citations matter.</li>
+</ul>
+<hr />
+<h2 id="how-it-compares-to-other-rag-approaches">How it compares to
+other RAG approaches</h2>
+<p>People reasonably ask: why not just use a hosted upload-and-chat
+SaaS, assemble something with LangChain yourself, buy an enterprise RAG
+platform, or paste the PDF into a general LLM chat? Each of those is a
+legitimate choice — they just optimize for different things. Here’s the
+honest positioning across the capabilities this project leads with
+(these are <em>general category</em> characteristics; verify specifics
+against any given vendor’s current docs):</p>
+<figure>
+<img src="https://raw.githubusercontent.com/milindAgarwal2/doc-intelligence-rag/main/docs/images/rag-comparison.png"
+alt="Capability comparison: this project vs hosted SaaS doc-chat, DIY framework, enterprise RAG platform, and general LLM chat with file upload" />
+<figcaption aria-hidden="true">Capability comparison: this project vs
+hosted SaaS doc-chat, DIY framework, enterprise RAG platform, and
+general LLM chat with file upload</figcaption>
+</figure>
+<p>The short version:</p>
+<ul>
+<li><strong>vs. hosted SaaS doc-chat</strong> — this wins on data
+residency (fully self-hosted, can be offline), table/figure fidelity
+(most SaaS flatten to text), no per-seat/token bill, and a
+white-labelable widget. They win on turnkey auth/SSO and multi-tenant
+user management out of the box — which is still a roadmap item
+here.</li>
+<li><strong>vs. a DIY framework stack</strong> — this is a <em>finished,
+runnable product</em> (ingestion + chat + admin GUI + widget + Docker +
+eval harness), not a toolkit you assemble. They win on unlimited
+flexibility and a huge connector ecosystem.</li>
+<li><strong>vs. an enterprise RAG platform</strong> — this wins on
+footprint, cost, transparency (open, inspectable code and prompts), and
+offline capability. They win on enterprise auth/RBAC,
+SharePoint/Confluence connectors, compliance certs, SLAs, and
+scale/HA.</li>
+<li><strong>vs. general LLM chat with file upload</strong> — this wins
+on a persistent indexed corpus (no re-uploading per chat), exact-page
+attribution, rendered tables/figures, and grounded refusal. They win on
+general reasoning breadth and zero setup for a one-off.</li>
+</ul>
+<p>The one row where this project is honestly behind is
+<strong>enterprise auth</strong> — it’s the top of my roadmap, and I’d
+rather state it plainly than hide it.</p>
+<hr />
+<h2 id="why-bother-keeping-tables-and-images">Why bother keeping tables
+and images?</h2>
+<p>Same reason as 2025, and it’s held up: for technical readers, the
+<em>artifact</em> often <strong>is</strong> the answer. A spec table or
+an architecture diagram tells them what they need far faster than a
+paragraph summarizing it — and seeing the real table, on the real cited
+page, builds the trust that a bare generated sentence never will. What’s
+new is that the whole thing is now grounded (it refuses when it doesn’t
+know), self‑hostable and offline‑capable (nothing has to leave your
+machine), embeddable anywhere, and provable (the eval harness).</p>
+<p>If you read the original: thank you, and the heart of it is
+unchanged. It just grew up.</p>
+<hr />
+<h2 id="toolset-2026">Toolset (2026)</h2>
+<ul>
+<li><strong>Embeddings:</strong> <code>fastembed</code> ONNX,
+<code>BAAI/bge-small-en-v1.5</code> (local, offline, no PyTorch)</li>
+<li><strong>Answer engine:</strong> Claude (API) · Qwen 1.5B GGUF via
+<code>llama-cpp-python</code> (local) · None (extractive)</li>
+<li><strong>Retrieval / store:</strong> Chroma with MMR
+(<code>k=8, fetch_k=24, lambda_mult=0.6</code>)</li>
+<li><strong>PDF:</strong> <code>pymupdf4llm</code> (text),
+<code>pymupdf</code>/<code>fitz</code> (tables), <code>Spire.PDF</code>
+(images)</li>
+<li><strong>PPTX:</strong> <code>python-pptx</code> (text, native
+tables, pictures)</li>
+<li><strong>UI:</strong> Streamlit chat primitives ·
+<strong>Widget:</strong> vanilla JS · <strong>API:</strong> FastAPI</li>
+<li><strong>Chat‑to‑PDF:</strong> <code>xhtml2pdf</code> ·
+<strong>Q&amp;A logging:</strong> Postgres via <code>psycopg</code>
+3</li>
+<li><strong>Deployment:</strong> Docker Compose (5 services)</li>
+</ul>
+<h2 id="references">References</h2>
+<ul>
+<li>Streamlit — https://docs.streamlit.io/</li>
+<li>LangChain — https://python.langchain.com/docs/introduction/</li>
+<li>Chroma — https://www.trychroma.com/</li>
+<li>PyMuPDF / pymupdf4llm —
+https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html</li>
+<li>fastembed — https://github.com/qdrant/fastembed</li>
+<li>llama.cpp / llama-cpp-python —
+https://github.com/abetlen/llama-cpp-python</li>
+</ul>
+<p><em>GitHub: Naina2023/ChatBOT</em></p>
+</body>
+</html>
