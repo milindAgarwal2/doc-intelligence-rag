@@ -90,22 +90,7 @@ that table during ingestion.*
 
 If you only read one section, read this one.
 
-| Area | 2025 (original) | 2026 (now) |
-|---|---|---|
-| **Embeddings** | `sentence-transformers` (`all-mpnet-base-v2`), PyTorch | `fastembed` ONNX (`BAAI/bge-small-en-v1.5`) — **local, offline, no PyTorch** |
-| **Answer generation** | `facebook/bart-large-cnn` summarizer per chunk (no synthesis) | **Pluggable, single‑select:** Claude (API) · Qwen 1.5B (local, offline) · None (extractive). One synthesized, streamed answer |
-| **Formats** | PDF only | PDF **and PowerPoint (PPTX/PPT)** — slides map to pages |
-| **Table searchability** | Table saved, but only prose was embedded | Each table's **content is embedded as its own chunk** — a query matching cell values finds the page |
-| **Citations** | Page links appended per chunk | **Inline `[document p.N]`** per claim; assets scoped to *cited* pages only |
-| **Groundedness** | Summaries, could drift | **Grounded refusal** ("I don't know") + a **low‑confidence banner** |
-| **Conversation** | Flat history map | **Follow‑up rewriting** ("what about at 85°C?") + **suggested follow‑ups** |
-| **Asset serving** | `python -m http.server 8000`, `http://localhost:8000/...` links | Images/PDFs/tables **inlined as base64/HTML** — no companion server |
-| **Admin** | CLI only | **Web admin console** — upload/delete, pick engine, tune everything |
-| **Re‑ingest** | `reset_collection()` every run | **Content‑hash upsert** — identical bytes skipped, changed bytes replaced, no duplicates |
-| **Deployment** | Run two terminals by hand | **Docker Compose** — 5 services, one command |
-| **Logging** | `print()` for debugging | **Structured per‑query logs** + **Postgres Q&A history** |
-| **Security** | — | **Prompt‑injection defense** (fenced untrusted context), path‑traversal‑safe source serving |
-| **Quality proof** | — | **Offline evaluation harness** (recall@k + confidence calibration), CI‑gating |
+![What changed since the 2025 article — a changelog comparing the original and the 2026 rewrite across embeddings, answer engine, formats, citations, groundedness, deployment, security and more](docs/images/table-changelog.png)
 
 Let's go through the ones that change how you'd *build* this.
 
@@ -165,11 +150,7 @@ The join key between embedded text and non‑text assets is still **`file_name` 
 `pagenumber`**. Every text chunk is embedded with metadata flags saying whether its
 page has an image/table, and the assets live on disk at predictable paths:
 
-| Asset | Extracted with (PDF / PPTX) | Stored as |
-|---|---|---|
-| Text | `pymupdf4llm` / `python-pptx` text frames | embedding in Chroma |
-| Tables | `pymupdf` `find_tables` / `python-pptx` table shapes | pickled DataFrame `table/<doc>/<page>/tableN.pkl` |
-| Images | `Spire.PDF` ImageHelper / `python-pptx` pictures | PNG `pdf/<doc>/<page>/imageN.png` |
+![The page-as-anchor sidecar store: text goes to Chroma, tables are pickled DataFrames, images are PNGs — all keyed by document and page](docs/images/table-sidecar.png)
 
 ### Tables are now semantically searchable (not just stored)
 
@@ -253,11 +234,7 @@ This is the biggest conceptual change. The answer backend is **single‑select**
 in the admin GUI and stored in `config.json`. The chatbot reads it once per session and
 uses it transparently — chat users never see or pick the engine:
 
-| Provider | What it does | Requirements | Notes |
-|---|---|---|---|
-| **Claude** (Anthropic API) | Streamed synthesis, reliable inline citations — best quality | `ANTHROPIC_API_KEY` | Fast |
-| **Qwen 1.5B** (local SLM) | Same synthesis, **fully offline** | `llama-cpp-python` + a ~1 GB GGUF | Slow on CPU (~1–2 min/answer); may omit citation markers |
-| **None** (extractive) | No generation — shows retrieved passages verbatim under `[file p.N]` headers | nothing | Instant, zero‑cost, no key |
+![The pluggable answer engine: Claude (API, best quality), Qwen 1.5B (local, offline), and None (extractive, zero-cost) — with their requirements and trade-offs](docs/images/table-providers.png)
 
 And there's an **auto‑fallback**: if the selected provider isn't actually available at
 runtime (missing key, missing GGUF), it silently falls back to extractive so the app
